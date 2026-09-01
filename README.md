@@ -1,7 +1,8 @@
 # DIY MIDI Looper & MIDI Controller (ESP32) — v26.1
 
 Универсальное устройство на базе платы WEMOS D1 R32, совмещающее в себе **MIDI-лупер** и **MIDI-контроллер** (для управления внешними устройствами (у меня это Aeros Loop Studio)).
-Мой демо моего прототипа: https://youtu.be/_LKqkmQQmJw
+
+Демо моего прототипа: https://youtu.be/_LKqkmQQmJw
 
 # Основные функции
 
