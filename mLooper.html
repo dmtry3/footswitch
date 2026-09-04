@@ -59,21 +59,40 @@
       display: block;
     }
 
+    /* КЛАВИАТУРА ПИАНИНО С ЧЕРНЫМИ И БЕЛЫМИ КЛАВИШАМИ */
     #keyboard {
       position: relative;
       width: 100%;
-      height: 40px;
-      background: #111;
+      height: 45px;
+      background: #000;
       display: flex;
       border-top: 2px solid #ff0055;
     }
 
     .key {
-      flex: 1;
-      margin: 0 1px;
+      position: relative;
       background: #eee;
+      border: 1px solid #222;
       border-radius: 0 0 3px 3px;
       transition: background 0.05s, box-shadow 0.05s;
+    }
+
+    .key.white {
+      flex: 1;
+      height: 100%;
+      z-index: 1;
+    }
+
+    .key.black {
+      position: absolute;
+      top: 0;
+      height: 60%;
+      width: 4%;
+      background: #111;
+      border: 1px solid #000;
+      z-index: 2;
+      border-radius: 0 0 2px 2px;
+      transform: translateX(-50%);
     }
 
     .key.active {
@@ -182,12 +201,12 @@
       background: rgba(76, 175, 80, 0.5);
     }
 
-    /* ИНДИКАТОР СОСТОЯНИЯ */
+    /* ИНДИКАТОР И КНОПКА СОСТОЯНИЯ */
     #status-bar {
       width: 100%;
       max-width: 800px;
       margin-top: 10px;
-      padding: 10px;
+      padding: 12px;
       border-radius: 6px;
       font-size: 16px;
       font-weight: bold;
@@ -196,13 +215,51 @@
       background: #222;
       color: #888;
       border: 1px solid #444;
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    #status-bar:active {
+      transform: scale(0.98);
     }
 
     #status-bar.IDLE { background: #222; color: #888; border-color: #444; }
     #status-bar.RECORDING { background: #b71c1c; color: #fff; border-color: #ff5252; box-shadow: 0 0 10px rgba(255, 82, 82, 0.5); }
     #status-bar.PLAYING { background: #1b5e20; color: #fff; border-color: #4caf50; box-shadow: 0 0 10px rgba(76, 175, 80, 0.5); }
     #status-bar.OVERDUB { background: #e65100; color: #fff; border-color: #ff9800; box-shadow: 0 0 10px rgba(255, 152, 0, 0.5); }
+
+    /* КНОПКИ ВНИЗУ */
+    #bottom-controls {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      max-width: 800px;
+      margin-top: 10px;
+    }
+
+    #bottom-controls button {
+      flex: 1;
+      background: #333;
+      border: 1px solid #555;
+      padding: 12px;
+      font-size: 16px;
+      border-radius: 6px;
+      color: #fff;
+    }
+
+    #bottom-controls button:hover {
+      background: #444;
+    }
+
+    #btnReset {
+      background: #8b0000 !important;
+      border-color: #ff4444 !important;
+    }
+
+    #btnReset:hover {
+      background: #a00000 !important;
+    }
   </style>
 </head>
 <body>
@@ -230,6 +287,12 @@
 
   <div id="status-bar" class="IDLE">СОСТОЯНИЕ: IDLE</div>
 
+  <div id="bottom-controls">
+    <button id="btnDivide">/2</button>
+    <button id="btnMultiply">x2</button>
+    <button id="btnReset">Reset</button>
+  </div>
+
 <script>
   const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
   const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
@@ -241,22 +304,72 @@
   const barCounter = document.getElementById('bar-counter');
   const statusBar = document.getElementById('status-bar');
   
+  const btnDivide = document.getElementById('btnDivide');
+  const btnMultiply = document.getElementById('btnMultiply');
+  const btnReset = document.getElementById('btnReset');
+  
   const canvas = document.getElementById('waterfall-canvas');
   const ctx = canvas.getContext('2d');
   const keyboard = document.getElementById('keyboard');
 
-  const TOTAL_KEYS = 25; 
-  const MIN_NOTE = 48;   
-  const MAX_NOTE = 72;   
-  
-  const keyElements = [];
+  const MIN_NOTE = 48; // C3
+  const MAX_NOTE = 72; // C5 (2 октавы, 25 нот)
+  const TOTAL_NOTES = MAX_NOTE - MIN_NOTE + 1;
 
-  for (let i = 0; i < TOTAL_KEYS; i++) {
-    const key = document.createElement('div');
-    key.className = 'key';
-    keyboard.appendChild(key);
-    keyElements.push(key);
+  // Маска черных клавиш внутри одной октавы (0 = C, 1 = C#, 2 = D ...)
+  const isBlackNotePattern = [false, true, false, true, false, false, true, false, true, false, true, false];
+
+  const keyElements = {};
+  const keyXPositions = {}; // Точные центральные позиции клавиш
+  let characteristicRef = null;
+
+  // Построение клавиатуры
+  function buildKeyboard() {
+    keyboard.innerHTML = '';
+    
+    // Считаем количество белых клавиш
+    let whiteKeysCount = 0;
+    for (let note = MIN_NOTE; note <= MAX_NOTE; note++) {
+      if (!isBlackNotePattern[note % 12]) whiteKeysCount++;
+    }
+
+    let whiteIndex = 0;
+    for (let note = MIN_NOTE; note <= MAX_NOTE; note++) {
+      const isBlack = isBlackNotePattern[note % 12];
+      const key = document.createElement('div');
+      
+      if (!isBlack) {
+        key.className = 'key white';
+        keyboard.appendChild(key);
+        keyElements[note] = key;
+        
+        // Запоминаем центр белой клавиши
+        const centerPct = ((whiteIndex + 0.5) / whiteKeysCount) * 100;
+        keyXPositions[note] = centerPct;
+        whiteIndex++;
+      }
+    }
+
+    // Добавляем черные клавиши с позиционированием поверх границ
+    whiteIndex = 0;
+    for (let note = MIN_NOTE; note <= MAX_NOTE; note++) {
+      const isBlack = isBlackNotePattern[note % 12];
+      if (isBlack) {
+        const key = document.createElement('div');
+        key.className = 'key black';
+        
+        const leftPct = (whiteIndex / whiteKeysCount) * 100;
+        key.style.left = leftPct + '%';
+        keyboard.appendChild(key);
+        keyElements[note] = key;
+        keyXPositions[note] = leftPct;
+      } else {
+        whiteIndex++;
+      }
+    }
   }
+
+  buildKeyboard();
 
   function resizeCanvas() {
     canvas.width = canvas.clientWidth;
@@ -288,9 +401,165 @@
   let activeLiveNoteMap = {}; 
   let particles = [];
 
-  // Разделение цветов:
-  const LIVE_NOTE_COLOR = '#FFD700'; // Ярко-жёлтый для живого ввода
-  const LOOP_NOTE_COLOR = '#B026FF'; // Неоново-фиолетовый для записанных/отражённых нот
+  const LIVE_NOTE_COLOR = '#FFD700'; 
+  const LOOP_NOTE_COLOR = '#B026FF'; 
+
+  async function sendBleCommand(cmdStr) {
+    if (characteristicRef) {
+      try {
+        const encoder = new TextEncoder();
+        await characteristicRef.writeValue(encoder.encode(cmdStr));
+      } catch (e) {
+        console.error("Ошибка отправки BLE команды:", e);
+      }
+    }
+  }
+
+  // Клик по статус-бару
+  statusBar.addEventListener('click', async () => {
+    if (currentLooperState === 'IDLE') {
+      await sendBleCommand('/rec');
+    } else if (currentLooperState === 'RECORDING') {
+      await sendBleCommand('/stop');
+    } else if (currentLooperState === 'PLAYING') {
+      await sendBleCommand('/overdub');
+    } else if (currentLooperState === 'OVERDUB') {
+      await sendBleCommand('/play');
+    }
+  });
+
+  function divideLoop() {
+    if (finalLoopMs <= 0) return;
+
+    finalLoopMs /= 2;
+    totalRecordedBars = Math.max(1, Math.round(finalLoopMs / msPerBar));
+
+    let newNotes = [];
+    allRecordedNotes.forEach(item => {
+      if (item.startMs < finalLoopMs) {
+        if (item.endMs && item.endMs > finalLoopMs) {
+          item.endMs = finalLoopMs;
+        }
+        item.startPos = item.startMs / finalLoopMs;
+        item.endPos = (item.endMs || finalLoopMs) / finalLoopMs;
+        item.el.style.left = (item.startPos * 100) + '%';
+        item.el.style.width = Math.max((item.endPos - item.startPos) * 100, 0.4) + '%';
+        newNotes.push(item);
+      } else {
+        item.el.remove();
+      }
+    });
+    allRecordedNotes = newNotes;
+
+    allCcEvents = allCcEvents.filter(item => {
+      if (item.startMs < finalLoopMs) {
+        item.startPos = item.startMs / finalLoopMs;
+        item.el.style.left = (item.startPos * 100) + '%';
+        return true;
+      }
+      item.el.remove();
+      return false;
+    });
+
+    redrawBarLines();
+  }
+
+  function multiplyLoop() {
+    if (finalLoopMs <= 0) return;
+
+    const oldLoopMs = finalLoopMs;
+    finalLoopMs *= 2;
+    totalRecordedBars = Math.max(1, Math.round(finalLoopMs / msPerBar));
+
+    let duplicatedNotes = [];
+
+    allRecordedNotes.forEach(item => {
+      item.startPos = item.startMs / finalLoopMs;
+      item.endPos = (item.endMs || oldLoopMs) / finalLoopMs;
+      item.el.style.left = (item.startPos * 100) + '%';
+      item.el.style.width = Math.max((item.endPos - item.startPos) * 100, 0.4) + '%';
+
+      const copyStartMs = item.startMs + oldLoopMs;
+      const copyEndMs = item.endMs ? (item.endMs + oldLoopMs) : finalLoopMs;
+
+      const noteEl = document.createElement('div');
+      noteEl.className = 'note-block';
+      noteEl.style.top = getNoteYPosition(item.note) + '%';
+      noteEl.style.height = '4px';
+      noteEl.style.backgroundColor = item.color;
+
+      const copyStartPos = copyStartMs / finalLoopMs;
+      const copyEndPos = copyEndMs / finalLoopMs;
+
+      noteEl.style.left = (copyStartPos * 100) + '%';
+      noteEl.style.width = Math.max((copyEndPos - copyStartPos) * 100, 0.4) + '%';
+      eventsLayer.appendChild(noteEl);
+
+      duplicatedNotes.push({
+        type: 'note',
+        note: item.note,
+        el: noteEl,
+        color: item.color,
+        startMs: copyStartMs,
+        endMs: copyEndMs,
+        startPos: copyStartPos,
+        endPos: copyEndPos
+      });
+    });
+
+    allRecordedNotes = allRecordedNotes.concat(duplicatedNotes);
+
+    let duplicatedCc = [];
+    allCcEvents.forEach(item => {
+      item.startPos = item.startMs / finalLoopMs;
+      item.el.style.left = (item.startPos * 100) + '%';
+
+      const copyStartMs = item.startMs + oldLoopMs;
+      const copyStartPos = copyStartMs / finalLoopMs;
+
+      const ccEl = document.createElement('div');
+      ccEl.className = 'cc-block';
+      ccEl.style.left = (copyStartPos * 100) + '%';
+      eventsLayer.appendChild(ccEl);
+
+      duplicatedCc.push({
+        type: 'cc',
+        el: ccEl,
+        startMs: copyStartMs,
+        startPos: copyStartPos
+      });
+    });
+
+    allCcEvents = allCcEvents.concat(duplicatedCc);
+
+    redrawBarLines();
+  }
+
+  function redrawBarLines() {
+    clearBarLines();
+    for (let i = 1; i < totalRecordedBars; i++) {
+      const line = document.createElement('div');
+      line.className = 'bar-grid-line';
+      line.style.left = ((i / totalRecordedBars) * 100) + '%';
+      trackEl.appendChild(line);
+      createdBarLines.push({ el: line });
+    }
+  }
+
+  btnDivide.addEventListener('click', () => {
+    sendBleCommand('/half');
+    divideLoop();
+  });
+
+  btnMultiply.addEventListener('click', () => {
+    sendBleCommand('/double');
+    multiplyLoop();
+  });
+
+  btnReset.addEventListener('click', async () => {
+    await sendBleCommand('/reset');
+    executeLocalReset();
+  });
 
   connectBtn.addEventListener('click', async function() {
     try {
@@ -305,10 +574,10 @@
       await new Promise(r => setTimeout(r, 200));
 
       const service = await server.getPrimaryService(SERVICE_UUID);
-      const characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+      characteristicRef = await service.getCharacteristic(CHARACTERISTIC_UUID);
 
-      await characteristic.startNotifications();
-      characteristic.addEventListener('characteristicvaluechanged', handleData);
+      await characteristicRef.startNotifications();
+      characteristicRef.addEventListener('characteristicvaluechanged', handleData);
 
       connectBtn.innerText = "Подключено!";
       connectBtn.style.background = "#4CAF50";
@@ -321,6 +590,28 @@
   function getNoteYPosition(noteNum) {
     const normalizedNote = Math.max(0, Math.min(1, (noteNum - MIN_NOTE) / (MAX_NOTE - MIN_NOTE)));
     return (72 - normalizedNote * 62); 
+  }
+
+  function executeLocalReset() {
+    baseProgress.style.width = '0%';
+    eventsLayer.innerHTML = '';
+    clearBarLines();
+    activeNotes = {};
+    recEventsTemp = [];
+    allRecordedNotes = [];
+    allCcEvents = [];
+    liveWaterfallNotes = [];
+    activeLiveNoteMap = {};
+    particles = [];
+    currentLooperState = 'IDLE';
+    finalLoopMs = 0;
+    currentPlaybackNormPos = 0;
+    barCounter.innerText = "Такт: 1";
+    statusBar.className = "IDLE";
+    statusBar.innerText = "СОСТОЯНИЕ: IDLE";
+    resetQuarterBeats();
+    Object.values(keyElements).forEach(k => k.classList.remove('active'));
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
 
   function handleData(event) {
@@ -408,10 +699,9 @@
       const rawVal = parseFloat(parts[2]) || 0;
       const isWriting = (currentLooperState === 'RECORDING' || currentLooperState === 'OVERDUB' || cmd === '/rec_noteon');
       
-      const keyIdx = (noteNum - MIN_NOTE) % TOTAL_KEYS;
-      if (keyElements[keyIdx]) {
-        keyElements[keyIdx].classList.add('active');
-        createParticlesForKey(keyIdx);
+      if (keyElements[noteNum]) {
+        keyElements[noteNum].classList.add('active');
+        createParticlesForNote(noteNum);
       }
 
       if (isWriting) {
@@ -438,7 +728,6 @@
         const item = { 
           type: 'note', 
           note: noteNum, 
-          keyIdx: keyIdx,
           el: noteEl, 
           color: LIVE_NOTE_COLOR,
           startMs: startMs,
@@ -458,7 +747,6 @@
 
       const liveNote = {
         noteNum: noteNum,
-        keyIdx: keyIdx,
         y: canvas.height - 10, 
         height: 10,
         color: LIVE_NOTE_COLOR,
@@ -473,14 +761,15 @@
       
       if (activeNotes[noteNum]) {
         const item = activeNotes[noteNum];
-        if (keyElements[item.keyIdx]) {
-          keyElements[item.keyIdx].classList.remove('active');
+        if (keyElements[noteNum]) {
+          keyElements[noteNum].classList.remove('active');
         }
 
         if (currentLooperState === 'OVERDUB') {
           let endPos = currentPlaybackNormPos;
           if (endPos < item.startPos) endPos += 1.0;
           item.endPos = endPos;
+          item.endMs = endPos * finalLoopMs;
           item.el.style.width = Math.max((endPos - item.startPos) * 100, 0.4) + '%';
         } else {
           item.endMs = rawVal > item.startMs ? rawVal : (item.startMs + 50);
@@ -488,8 +777,7 @@
 
         delete activeNotes[noteNum];
       } else {
-        const keyIdx = (noteNum - MIN_NOTE) % TOTAL_KEYS;
-        if (keyElements[keyIdx]) keyElements[keyIdx].classList.remove('active');
+        if (keyElements[noteNum]) keyElements[noteNum].classList.remove('active');
       }
 
       if (activeLiveNoteMap[noteNum]) {
@@ -497,24 +785,8 @@
         delete activeLiveNoteMap[noteNum];
       }
     } 
-    else if (cmd === '/reset') {
-      baseProgress.style.width = '0%';
-      eventsLayer.innerHTML = '';
-      clearBarLines();
-      activeNotes = {};
-      recEventsTemp = [];
-      allRecordedNotes = [];
-      allCcEvents = [];
-      liveWaterfallNotes = [];
-      activeLiveNoteMap = {};
-      particles = [];
-      currentLooperState = 'IDLE';
-      finalLoopMs = 0;
-      barCounter.innerText = "Такт: 1";
-      statusBar.className = "IDLE";
-      statusBar.innerText = "СОСТОЯНИЕ: IDLE";
-      resetQuarterBeats();
-      keyElements.forEach(k => k.classList.remove('active'));
+    else if (cmd === '/reset' || cmd === '/clear') {
+      executeLocalReset();
     }
   }
 
@@ -572,18 +844,12 @@
         let endPos = currentPlaybackNormPos;
         if (endPos < item.startPos) endPos += 1.0;
         item.endPos = endPos;
+        item.endMs = endPos * finalLoopMs;
         item.el.style.width = Math.max((endPos - item.startPos) * 100, 0.4) + '%';
       }
     }
 
-    clearBarLines();
-    for (let i = 1; i < totalRecordedBars; i++) {
-      const line = document.createElement('div');
-      line.className = 'bar-grid-line';
-      line.style.left = ((i / totalRecordedBars) * 100) + '%';
-      trackEl.appendChild(line);
-      createdBarLines.push({ el: line });
-    }
+    redrawBarLines();
 
     recEventsTemp = [];
     activeNotes = {};
@@ -630,12 +896,12 @@
     });
   }
 
-  function createParticlesForKey(keyIdx) {
-    const keyWidth = canvas.width / TOTAL_KEYS;
-    const centerX = keyIdx * keyWidth + keyWidth / 2;
+  function createParticlesForNote(noteNum) {
+    if (!keyXPositions[noteNum]) return;
+    const centerX = (keyXPositions[noteNum] / 100) * canvas.width;
     for (let i = 0; i < 4; i++) {
       particles.push({
-        x: centerX + (Math.random() - 0.5) * keyWidth,
+        x: centerX + (Math.random() - 0.5) * 10,
         y: canvas.height - 4,
         vx: (Math.random() - 0.5) * 2,
         vy: -Math.random() * 3 - 1,
@@ -647,13 +913,12 @@
 
   function drawWaterfall() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const keyWidth = canvas.width / TOTAL_KEYS;
 
-    // 1. Живой водопад (ЖЁЛТЫЕ НОТЫ)
     for (let i = liveWaterfallNotes.length - 1; i >= 0; i--) {
       const note = liveWaterfallNotes[i];
-      const x = note.keyIdx * keyWidth + 1;
-      const w = keyWidth - 2;
+      const centerPct = keyXPositions[note.noteNum] || 50;
+      const x = (centerPct / 100) * canvas.width - 6;
+      const w = 12;
 
       if (note.active) {
         note.height += 3.5;
@@ -676,7 +941,6 @@
       }
     }
 
-    // 2. Записанный/отражённый водопад (ФИОЛЕТОВЫЕ НОТЫ)
     if (currentLooperState !== 'RECORDING' && finalLoopMs > 0) {
       allRecordedNotes.forEach(item => {
         if (item.startPos === null || item.startPos === undefined) return;
@@ -684,8 +948,9 @@
         let startNorm = item.startPos;
         let endNorm = item.endPos || (item.startPos + 0.03);
 
-        const x = item.keyIdx * keyWidth + 1;
-        const w = keyWidth - 2;
+        const centerPct = keyXPositions[item.note] || 50;
+        const x = (centerPct / 100) * canvas.width - 6;
+        const w = 12;
 
         const speed = 0.85;
         let timeDiff = (currentPlaybackNormPos - startNorm);
@@ -707,7 +972,6 @@
       });
     }
 
-    // 3. Частицы
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
       p.x += p.vx;
