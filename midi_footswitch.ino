@@ -1,4 +1,4 @@
-// v28 + Web Bluetooth UI Integration
+// ESP32 MIDI Looper Engine v32 - Synced with DAW / Waterfall Web UI
 #include <HardwareSerial.h>
 #include <MIDI.h>
 #include <BLEDevice.h>
@@ -6,48 +6,167 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 
-// --- НАСТРОЙКИ ПИНОВ И ПАРАМЕТРОВ ---
-#define LOOPER_PIN 18      // Пин основной кнопки управления MIDI лупером
-#define LED_PIN 2          // Пин светодиода состояния / ритма (ШИМ)
-#define MIDICHANNEL 12     // MIDI-канал для команд контроллера Aeros
-#define EXPPIN1 34         // АЦП пин первой педали экспрессии
-#define EXPPIN2 35         // АЦП пин второй педали экспрессии
+#define LOOPER_PIN 18
+#define LED_PIN 2
+#define MIDICHANNEL 12
+#define EXPPIN1 34
+#define EXPPIN2 35
 
-// BT
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
-// Инициализация второго аппаратного UART для работы с MIDI (31250 baud)
 HardwareSerial MIDI_Serial(2);
 MIDI_CREATE_INSTANCE(HardwareSerial, MIDI_Serial, MIDI); 
 
-// Параметры генерации ШИМ для светодиода (ESP32 LEDC)
-const int pwmFreq = 5000;  // Частота ШИМ: 5 кГц
-const int pwmRes = 8;      // Разрешение: 8 бит (значения от 0 до 255)
+const int pwmFreq = 5000;
+const int pwmRes = 8;
 
-// --- BLE ПЕРЕМЕННЫЕ И ТАЙМЕРЫ ---
 BLECharacteristic *pCharacteristic;
 bool deviceConnected = false;
 unsigned long lastBleUpdate = 0;
-const unsigned long BLE_INTERVAL = 35; // Отправка бегунка каждые 35 мс (~30 FPS)
+const unsigned long BLE_INTERVAL = 30; // ~33 FPS для плавной отрисовки прогресса
 
-class MyServerCallbacks: public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) { deviceConnected = true; };
-    void onDisconnect(BLEServer* pServer) { 
-      deviceConnected = false;
-      BLEDevice::startAdvertising(); // Перезапуск рекламы для повторного подключения
-    }
+// ДВИЖОК ЛУПЕРА
+enum LooperState { STATE_IDLE, STATE_RECORDING, STATE_PLAYING, STATE_OVERDUB };
+LooperState looperState = STATE_IDLE;
+
+// Переменные квантования/отложенного старта (объявлены до класса BLE для избежания ошибок компиляции)
+volatile bool pendingStart = false; 
+volatile bool pendingStop = false;  
+volatile unsigned long lastBeatTime = 0;  
+volatile unsigned long lastClockTime = 0; 
+volatile int beatInBar = 0;       
+volatile int tickInBeat = 0;      
+unsigned long beatDuration = 545; 
+
+struct MidiEvent { 
+  uint16_t timestamp; 
+  byte type, d1, d2, ch, layer; 
+  bool played; 
 };
+MidiEvent events[5000];
 
-// Функция отправки уведомлений по BLE
+int eventCount = 0;         
+byte currentLayer = 0;      
+byte ccMaxLayer[17][128];   
+
+unsigned long loopLen = 0, recStart = 0, playStart = 0, btnTime = 0;
+bool ignoreRel = false;
+
+unsigned long lastSentNoteTime[16][128], lastSentCCTime[16][128], lastSentATTime[16], ccTakeover[17][128]; 
+
 void sendBleNotify(String text) {
-  if (deviceConnected) {
+  if (deviceConnected && pCharacteristic) {
     pCharacteristic->setValue(text.c_str());
     pCharacteristic->notify();
   }
 }
 
-// --- ПЕРЕМЕННЫЕ КОНТРОЛЛЕРА ---
+// --- ФУНКЦИЯ ПОЛНОГО СБРОСА ЛУПЕРА ---
+void resetLooper() {
+  for (int i = 0; i < eventCount; i++) {
+    if (events[i].type == 0x90) {
+      MIDI.sendNoteOff(events[i].d1, 0, events[i].ch);
+    }
+  }
+  
+  looperState = STATE_IDLE;
+  eventCount = 0;
+  currentLayer = 0;
+  loopLen = 0;
+  recStart = 0;
+  playStart = 0;
+  pendingStart = false;
+  pendingStop = false;
+  
+  sendBleNotify("/reset 1");
+}
+
+// --- ЛОГИКА /2 И x2 ---
+void halfLoop() {
+  if (loopLen < 500 || (looperState != STATE_PLAYING && looperState != STATE_OVERDUB)) return;
+
+  for (int i = 0; i < eventCount; i++) {
+    if (events[i].type == 0x90) MIDI.sendNoteOff(events[i].d1, 0, events[i].ch);
+  }
+
+  loopLen /= 2;
+
+  int newCount = 0;
+  for (int i = 0; i < eventCount; i++) {
+    if (events[i].timestamp < loopLen) {
+      events[newCount++] = events[i];
+    }
+  }
+  eventCount = newCount;
+}
+
+void doubleLoop() {
+  if (loopLen == 0 || (looperState != STATE_PLAYING && looperState != STATE_OVERDUB)) return;
+  if (loopLen * 2 > 65000) return;
+
+  int origCount = eventCount;
+  unsigned long oldLen = loopLen;
+
+  for (int i = 0; i < origCount; i++) {
+    if (eventCount < 5000) {
+      MidiEvent newEv = events[i];
+      newEv.timestamp = (uint16_t)(events[i].timestamp + oldLen);
+      newEv.played = false;
+      events[eventCount++] = newEv;
+    }
+  }
+
+  loopLen *= 2;
+}
+
+// Обработка входящих BLE команд от Web UI
+class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pChar) {
+      std::string rxValue = pChar->getValue().c_str();
+      if (rxValue.length() > 0) {
+        String cmd = String(rxValue.c_str());
+        cmd.trim();
+        if (cmd == "/half") {
+          halfLoop();
+        } 
+        else if (cmd == "/double") {
+          doubleLoop();
+        } 
+        else if (cmd == "/reset") {
+          resetLooper();
+        }
+        else if (cmd == "/rec") {
+          if (looperState == STATE_IDLE) pendingStart = true;
+        } 
+        else if (cmd == "/stop") {
+          if (looperState == STATE_RECORDING) pendingStop = true;
+        } 
+        else if (cmd == "/overdub") {
+          if (looperState == STATE_PLAYING) {
+            currentLayer++;
+            looperState = STATE_OVERDUB;
+            sendBleNotify("/state OVERDUB");
+          }
+        } 
+        else if (cmd == "/play") {
+          if (looperState == STATE_OVERDUB) {
+            looperState = STATE_PLAYING;
+            sendBleNotify("/state PLAYING");
+          }
+        }
+      }
+    }
+};
+
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) { deviceConnected = true; };
+    void onDisconnect(BLEServer* pServer) { 
+      deviceConnected = false;
+      BLEDevice::startAdvertising();
+    }
+};
+
 const int buttonPins[11] = {19, 23, 5, 13, 12, 14, 27, 25, 26, 32, 33}; 
 const int cc_list[11]    = {46, 47, 38, 41, 41, 41, 42, 35, 35, 37, 40};
 const int cc_val[11]     = {0, 1, 100, 100, 0, 104, 0, 1, 5, 0, 0};
@@ -55,12 +174,9 @@ const int cc_val[11]     = {0, 1, 100, 100, 0, 104, 0, 1, 5, 0, 0};
 unsigned long last_debounce[11] = {0};
 bool last_btn_logical_state[11] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH, HIGH, HIGH, HIGH, HIGH, HIGH}; 
 
-// --- ПЕРЕМЕННЫЕ И ФИЛЬТРЫ ПЕДАЛЕЙ ЭКСПРЕССИИ ---
 int lastValExp = 0, lastValExp2 = 0;
-
 float errmeasure = 40, errestimate = 40, q = 0.5;
 float currentestimate = 0.0, lastestimate = 0.0, kalmangain = 0.0;
-
 float errmeasure2 = 40, errestimate2 = 40, q2 = 0.5;
 float currentestimate2 = 0.0, lastestimate2 = 0.0, kalmangain2 = 0.0;
 
@@ -78,31 +194,6 @@ float filter2(int value2) {
   lastestimate2 = currentestimate2; return currentestimate2;
 }
 
-// --- ДВИЖОК ЛУПЕРА ---
-enum LooperState { STATE_IDLE, STATE_RECORDING, STATE_PLAYING, STATE_OVERDUB };
-LooperState looperState = STATE_IDLE;
-
-struct MidiEvent { uint16_t timestamp; byte type, d1, d2, ch, layer; bool played; };
-MidiEvent events[5000];
-
-int eventCount = 0;         
-byte currentLayer = 0;      
-byte ccMaxLayer[17][128];   
-
-unsigned long loopLen = 0, recStart = 0, playStart = 0, btnTime = 0;
-bool ignoreRel = false;
-
-unsigned long lastSentNoteTime[16][128], lastSentCCTime[16][128], lastSentATTime[16], ccTakeover[17][128]; 
-
-// --- СИНХРОНИЗАЦИЯ С MIDI CLOCK ---
-volatile bool pendingStart = false; 
-volatile bool pendingStop = false;  
-volatile unsigned long lastBeatTime = 0;  
-volatile unsigned long lastClockTime = 0; 
-volatile int beatInBar = 0;       
-volatile int tickInBeat = 0;      
-unsigned long beatDuration = 545; 
-
 void triggerQuantizedAction() {
   unsigned long now = millis();
   if (pendingStart) {
@@ -110,11 +201,13 @@ void triggerQuantizedAction() {
     looperState = STATE_RECORDING;
     for(int i=0; i<17; i++) for(int j=0; j<128; j++) ccMaxLayer[i][j] = 0;
     pendingStart = false;
+    sendBleNotify("/state RECORDING");
   } 
   else if (pendingStop) {
     loopLen = now - recStart; playStart = now; 
     looperState = STATE_PLAYING;
     pendingStop = false;
+    sendBleNotify("/state PLAYING");
   }
 }
 
@@ -126,14 +219,13 @@ void handleClock() {
   
   if (tickInBeat == 0) { 
     beatDuration = now - lastBeatTime; 
-    lastBeatTime = now; // <--- ДОБАВЛЕНО: обновляем время старта текущей четверти
+    lastBeatTime = now;
     if (beatInBar == 0) triggerQuantizedAction();
   }
   tickInBeat++;
   if (tickInBeat >= 24) { tickInBeat = 0; beatInBar = (beatInBar + 1) % 4; }
 }
 
-// Запись входящих MIDI-событий в буфер и отправка UI маркеров по BLE
 void recordEvent(byte t, byte d1, byte d2, byte ch) {
   if (ch == 11 || ch == 12) return; 
   unsigned long now = millis();
@@ -141,17 +233,14 @@ void recordEvent(byte t, byte d1, byte d2, byte ch) {
   if (t == 0xB0) { if (now - lastSentCCTime[ch-1][d1] < 15) return; ccTakeover[ch][d1] = now; ccMaxLayer[ch][d1] = currentLayer; }
   if (t == 0xD0 || t == 0xA0) if (now - lastSentATTime[ch-1] < 15) return;
 
-  // --- 1. ЖИВАЯ ОТПРАВКА В BLE (РАБОТАЕТ ВСЕГДА: IDLE, PLAYING, RECORD, OVERDUB) ---
   if (deviceConnected) {
     if (looperState == STATE_RECORDING) {
-      // Первая запись — передаем мс от старта записи
-      unsigned long recPos = now - recStart;
-      if (t == 0xB0) sendBleNotify("/rec_cc " + String(recPos));
-      else if (t == 0x90 && d2 > 0) sendBleNotify("/rec_noteon " + String(d1) + " " + String(recPos));
-      else if (t == 0x80 || (t == 0x90 && d2 == 0)) sendBleNotify("/rec_noteoff " + String(d1) + " " + String(recPos));
+      unsigned long recPosMs = now - recStart;
+      if (t == 0xB0) sendBleNotify("/rec_cc " + String(recPosMs));
+      else if (t == 0x90 && d2 > 0) sendBleNotify("/rec_noteon " + String(d1) + " " + String(recPosMs));
+      else if (t == 0x80 || (t == 0x90 && d2 == 0)) sendBleNotify("/rec_noteoff " + String(d1) + " " + String(recPosMs));
     } 
     else {
-      // Обычная игра (IDLE), воспроизведение (PLAYING) или овердаб (OVERDUB)
       float posNorm = 0.0;
       if (loopLen > 0 && (looperState == STATE_PLAYING || looperState == STATE_OVERDUB)) {
         posNorm = (float)((now - playStart) % loopLen) / (float)loopLen;
@@ -163,7 +252,6 @@ void recordEvent(byte t, byte d1, byte d2, byte ch) {
     }
   }
 
-  // --- 2. ЗАПИСЬ СОБЫТИЙ В ПАМЯТЬ ЛУПЕРА (ТОЛЬКО ПРИ ЗАПИСИ/ОВЕРДАБЕ) ---
   if (looperState != STATE_RECORDING && looperState != STATE_OVERDUB) return;
   if ((t == 0x90 || t == 0x80) && (now - lastSentNoteTime[ch-1][d1] < 20)) return;
   
@@ -201,7 +289,13 @@ void playback() {
 void handleButton() {
   byte btn = digitalRead(LOOPER_PIN); unsigned long now = millis(); static byte lastBtn = HIGH;
   
-  if (now - lastClockTime >= 1200) { if (now - lastBeatTime >= 545) { lastBeatTime = now; if (beatInBar == 0) triggerQuantizedAction(); beatInBar = (beatInBar + 1) % 4; } }
+  if (now - lastClockTime >= 1200) { 
+    if (now - lastBeatTime >= 545) { 
+      lastBeatTime = now; 
+      if (beatInBar == 0) triggerQuantizedAction(); 
+      beatInBar = (beatInBar + 1) % 4; 
+    } 
+  }
   
   if (btn != lastBtn) {
     delay(20); 
@@ -209,18 +303,22 @@ void handleButton() {
     else if (!ignoreRel) {
       if (looperState == STATE_IDLE) pendingStart = true;
       else if (looperState == STATE_RECORDING) pendingStop = true;
-      else if (looperState == STATE_PLAYING) { currentLayer++; looperState = STATE_OVERDUB; }
-      else if (looperState == STATE_OVERDUB) looperState = STATE_PLAYING;
+      else if (looperState == STATE_PLAYING) { 
+        currentLayer++; 
+        looperState = STATE_OVERDUB; 
+        sendBleNotify("/state OVERDUB");
+      }
+      else if (looperState == STATE_OVERDUB) {
+        looperState = STATE_PLAYING;
+        sendBleNotify("/state PLAYING");
+      }
     }
     lastBtn = btn;
   }
   
-  // Долгое удержание — очистка памяти и отправка команды /reset на экран
   if (btn == LOW && !ignoreRel && (now - btnTime > 1500)) {
-    for (int i = 0; i < eventCount; i++) if (events[i].type == 0x90) MIDI.sendNoteOff(events[i].d1, 0, events[i].ch);
-    looperState = STATE_IDLE; eventCount = 0; currentLayer = 0; pendingStart = false; pendingStop = false; ignoreRel = true;
-    
-    sendBleNotify("/reset 1"); // Стираем прогресс и штрихи на телефоне
+    pendingStart = false; pendingStop = false; ignoreRel = true;
+    resetLooper();
   }
 }
 
@@ -283,21 +381,20 @@ void setup() {
   MIDI.setHandleNoteOff([](byte ch, byte n, byte v) { recordEvent(0x80, n, v, ch); });
   MIDI.setHandleControlChange([](byte ch, byte n, byte v) { recordEvent(0xB0, n, v, ch); });
 
-  // Настройка BLE сервера
-BLEDevice::init("ESP32_Looper_UI");
+  BLEDevice::init("ESP32_Looper_UI");
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
 
   BLEService *pService = pServer->createService(SERVICE_UUID);
 
-  // Создаем характеристику с явными правами READ и NOTIFY
   pCharacteristic = pService->createCharacteristic(
                       CHARACTERISTIC_UUID,
                       BLECharacteristic::PROPERTY_READ | 
-                      BLECharacteristic::PROPERTY_NOTIFY
+                      BLECharacteristic::PROPERTY_NOTIFY |
+                      BLECharacteristic::PROPERTY_WRITE
                     );
 
-  // Обязательный дескриптор для работы BLE Notifications
+  pCharacteristic->setCallbacks(new MyCharacteristicCallbacks());
   pCharacteristic->addDescriptor(new BLE2902());
 
   pService->start();
@@ -306,11 +403,11 @@ BLEDevice::init("ESP32_Looper_UI");
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->setScanResponse(true);
   
-  // Интервалы подключения для стабильного GATT
   pAdvertising->setMinPreferred(0x06);
   pAdvertising->setMinPreferred(0x12);
 
-  BLEDevice::startAdvertising();}
+  BLEDevice::startAdvertising();
+}
 
 void loop() { 
   while (MIDI.read()) { } 
@@ -320,28 +417,17 @@ void loop() {
   playback();              
   updateLED();             
 
-// --- ОБНОВЛЕНИЕ UI ПО BLE ---
   if (deviceConnected && (millis() - lastBleUpdate >= BLE_INTERVAL)) {
     lastBleUpdate = millis();
 
-    // 1. Отправка текущего состояния лупера
-    String stateStr = "IDLE";
-    if (looperState == STATE_RECORDING) stateStr = "RECORDING";
-    else if (looperState == STATE_PLAYING) stateStr = "PLAYING";
-    else if (looperState == STATE_OVERDUB) stateStr = "OVERDUB";
-    sendBleNotify("/state " + stateStr);
-
-    // 2. Воспроизведение записанного лупа
     if (loopLen > 0 && (looperState == STATE_PLAYING || looperState == STATE_OVERDUB)) {
       uint32_t currentPos = (millis() - playStart) % loopLen;
       float posNorm = (float)currentPos / (float)loopLen;
       sendBleNotify("/pos " + String(posNorm, 4));
     } 
-    // 3. Первая запись
     else if (looperState == STATE_RECORDING) {
       sendBleNotify("/rec_pos " + String(millis() - recStart));
     }
-    // 4. Режим покоя (STATE_IDLE)
     else if (looperState == STATE_IDLE) {
       unsigned long now = millis();
       unsigned long timeInBeat = now - lastBeatTime;
