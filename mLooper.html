@@ -3,85 +3,731 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ESP32 Looper Display</title>
+  <title>ESP32 MIDI Looper UI</title>
   <style>
-    body { background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    button { padding: 12px 24px; font-size: 16px; font-weight: bold; background: #2196F3; color: white; border: none; border-radius: 6px; margin-bottom: 20px; cursor: pointer; }
-    .looper-container { position: relative; width: 90vw; height: 100px; background: #111; border-radius: 8px; overflow: hidden; border: 2px solid #333; }
-    #base-progress { position: absolute; left: 0; top: 0; height: 100%; width: 0%; background: rgba(76, 175, 80, 0.85); transition: width 0.03s linear; }
-    #events-layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+    * { box-sizing: border-box; }
+    body { 
+      background: #121212; 
+      color: #fff; 
+      font-family: system-ui, sans-serif; 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      padding: 15px; 
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+    }
+    
+    button { 
+      padding: 10px 20px; 
+      font-size: 15px; 
+      font-weight: bold; 
+      border: none; 
+      border-radius: 6px; 
+      background: #2196F3; 
+      color: white; 
+      cursor: pointer; 
+      z-index: 10;
+    }
+
+    #bar-counter {
+      font-size: 18px;
+      font-weight: bold;
+      margin-top: 8px;
+      color: #FFEB3B;
+    }
+
+    /* ВОДОПАД (SYNTHESIA) */
+    #waterfall-section {
+      position: relative;
+      width: 100%;
+      max-width: 800px;
+      height: 220px;
+      background: #09090d;
+      border: 1px solid #333;
+      border-radius: 8px 8px 0 0;
+      margin-top: 10px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #waterfall-canvas {
+      width: 100%;
+      flex: 1;
+      display: block;
+    }
+
+    #keyboard {
+      position: relative;
+      width: 100%;
+      height: 40px;
+      background: #111;
+      display: flex;
+      border-top: 2px solid #ff0055;
+    }
+
+    .key {
+      flex: 1;
+      margin: 0 1px;
+      background: #eee;
+      border-radius: 0 0 3px 3px;
+      transition: background 0.05s, box-shadow 0.05s;
+    }
+
+    .key.active {
+      background: #FFD700 !important;
+      box-shadow: 0 0 15px #FFD700, inset 0 0 8px #fff;
+    }
+
+    /* ТРЕК C ПИАНО РОЛЛОМ */
+    #track { 
+      position: relative; 
+      width: 100%; 
+      max-width: 800px; 
+      height: 200px; 
+      background: #1e1e1e; 
+      border-radius: 0 0 8px 8px; 
+      overflow: hidden; 
+      border: 1px solid #333;
+      border-top: none;
+    }
+    
+    #base-progress { 
+      position: absolute; 
+      left: 0; 
+      top: 0; 
+      width: 0%; 
+      height: 100%; 
+      background: rgba(76, 175, 80, 0.2); 
+      border-right: 2px solid #4CAF50; 
+      z-index: 1;
+    }
+    
+    #events-layer { 
+      position: absolute; 
+      left: 0; 
+      top: 0; 
+      width: 100%; 
+      height: 100%; 
+      pointer-events: none; 
+      z-index: 3;
+    }
+    
+    .bar-grid-line {
+      position: absolute;
+      top: 0;
+      height: 100%;
+      width: 2px;
+      background: rgba(255, 255, 255, 0.4);
+      z-index: 2;
+    }
+
+    .note-block { 
+      position: absolute; 
+      border-radius: 1px; 
+      opacity: 0.95;
+      box-shadow: 0 0 2px rgba(0,0,0,0.5);
+    }
+    
+    .cc-block { 
+      position: absolute; 
+      bottom: 2px; 
+      height: 30px; 
+      width: 2px; 
+      background: #E0B0FF; 
+      border-radius: 1px; 
+      box-shadow: 0 0 4px rgba(224, 176, 255, 0.8);
+      z-index: 4;
+      transform: translateX(-50%);
+    }
+    
+    /* ИНДИКАТОР ЧЕТВЕРТЕЙ */
+    #beats-container {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      max-width: 800px;
+      height: 32px;
+      margin-top: 8px;
+    }
+
+    .beat-box {
+      flex: 1;
+      position: relative;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 6px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: #666;
+    }
+
+    .beat-box.active {
+      border-color: #4CAF50;
+      color: #fff;
+      box-shadow: 0 0 8px rgba(76, 175, 80, 0.4);
+    }
+
+    .beat-progress {
+      position: absolute;
+      left: 0;
+      top: 0;
+      height: 100%;
+      width: 0%;
+      background: rgba(76, 175, 80, 0.5);
+    }
+
+    /* ИНДИКАТОР СОСТОЯНИЯ */
+    #status-bar {
+      width: 100%;
+      max-width: 800px;
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: bold;
+      text-align: center;
+      letter-spacing: 1px;
+      background: #222;
+      color: #888;
+      border: 1px solid #444;
+      transition: all 0.2s ease;
+    }
+
+    #status-bar.IDLE { background: #222; color: #888; border-color: #444; }
+    #status-bar.RECORDING { background: #b71c1c; color: #fff; border-color: #ff5252; box-shadow: 0 0 10px rgba(255, 82, 82, 0.5); }
+    #status-bar.PLAYING { background: #1b5e20; color: #fff; border-color: #4caf50; box-shadow: 0 0 10px rgba(76, 175, 80, 0.5); }
+    #status-bar.OVERDUB { background: #e65100; color: #fff; border-color: #ff9800; box-shadow: 0 0 10px rgba(255, 152, 0, 0.5); }
   </style>
 </head>
 <body>
 
-  <button id="connectBtn">Подключить ESP32 (BLE)</button>
+  <button id="connectBtn">Подключить ESP32</button>
 
-  <div class="looper-container">
+  <div id="bar-counter">Такт: 1</div>
+
+  <div id="waterfall-section">
+    <canvas id="waterfall-canvas"></canvas>
+    <div id="keyboard"></div>
+  </div>
+
+  <div id="track">
     <div id="base-progress"></div>
     <div id="events-layer"></div>
   </div>
+
+  <div id="beats-container">
+    <div class="beat-box" id="beat-0"><div class="beat-progress"></div>1/4</div>
+    <div class="beat-box" id="beat-1"><div class="beat-progress"></div>2/4</div>
+    <div class="beat-box" id="beat-2"><div class="beat-progress"></div>3/4</div>
+    <div class="beat-box" id="beat-3"><div class="beat-progress"></div>4/4</div>
+  </div>
+
+  <div id="status-bar" class="IDLE">СОСТОЯНИЕ: IDLE</div>
 
 <script>
   const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
   const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
+  const trackEl = document.getElementById('track');
   const baseProgress = document.getElementById('base-progress');
   const eventsLayer = document.getElementById('events-layer');
   const connectBtn = document.getElementById('connectBtn');
+  const barCounter = document.getElementById('bar-counter');
+  const statusBar = document.getElementById('status-bar');
+  
+  const canvas = document.getElementById('waterfall-canvas');
+  const ctx = canvas.getContext('2d');
+  const keyboard = document.getElementById('keyboard');
 
-  connectBtn.addEventListener('click', function() {
-    connectBtn.innerText = "Подключение...";
-    
-    navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: [SERVICE_UUID]
-    })
-    .then(device => {
-      console.log('Устройство выбрано:', device.name);
-      return device.gatt.connect();
-    })
-    .then(server => {
-      return server.getPrimaryService(SERVICE_UUID);
-    })
-    .then(service => {
-      return service.getCharacteristic(CHARACTERISTIC_UUID);
-    })
-    .then(characteristic => {
-      return characteristic.startNotifications().then(() => {
-        characteristic.addEventListener('characteristicvaluechanged', handleData);
-        connectBtn.innerText = "Подключено!";
-        connectBtn.style.background = "#4CAF50";
+  const TOTAL_KEYS = 25; 
+  const MIN_NOTE = 48;   
+  const MAX_NOTE = 72;   
+  
+  const keyElements = [];
+
+  for (let i = 0; i < TOTAL_KEYS; i++) {
+    const key = document.createElement('div');
+    key.className = 'key';
+    keyboard.appendChild(key);
+    keyElements.push(key);
+  }
+
+  function resizeCanvas() {
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  const beatBoxes = [
+    document.getElementById('beat-0'),
+    document.getElementById('beat-1'),
+    document.getElementById('beat-2'),
+    document.getElementById('beat-3')
+  ];
+
+  let activeNotes = {}; 
+  let recEventsTemp = []; 
+  let currentLooperState = 'IDLE';
+
+  let msPerBar = 2000; 
+  let createdBarLines = []; 
+  let totalRecordedBars = 1;
+  let finalLoopMs = 0;
+  let currentPlaybackNormPos = 0;
+
+  let allRecordedNotes = []; 
+  let allCcEvents = [];
+  let liveWaterfallNotes = []; 
+  let activeLiveNoteMap = {}; 
+  let particles = [];
+
+  // Разделение цветов:
+  const LIVE_NOTE_COLOR = '#FFD700'; // Ярко-жёлтый для живого ввода
+  const LOOP_NOTE_COLOR = '#B026FF'; // Неоново-фиолетовый для записанных/отражённых нот
+
+  connectBtn.addEventListener('click', async function() {
+    try {
+      connectBtn.innerText = "Поиск...";
+      const device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [SERVICE_UUID]
       });
-    })
-    .catch(error => {
-      console.error("Ошибка BLE:", error);
-      connectBtn.innerText = "Ошибка. Попробовать снова";
+
+      connectBtn.innerText = "Подключение...";
+      const server = await device.gatt.connect();
+      await new Promise(r => setTimeout(r, 200));
+
+      const service = await server.getPrimaryService(SERVICE_UUID);
+      const characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
+      await characteristic.startNotifications();
+      characteristic.addEventListener('characteristicvaluechanged', handleData);
+
+      connectBtn.innerText = "Подключено!";
+      connectBtn.style.background = "#4CAF50";
+    } catch (error) {
+      connectBtn.innerText = "Ошибка: " + error.message;
       connectBtn.style.background = "#F44336";
-    });
+    }
   });
 
+  function getNoteYPosition(noteNum) {
+    const normalizedNote = Math.max(0, Math.min(1, (noteNum - MIN_NOTE) / (MAX_NOTE - MIN_NOTE)));
+    return (72 - normalizedNote * 62); 
+  }
+
   function handleData(event) {
-    const decoder = new TextDecoder('utf-8');
-    const text = decoder.decode(event.target.value).trim();
+    const text = new TextDecoder('utf-8').decode(event.target.value).trim();
     const parts = text.split(' ');
     const cmd = parts[0];
-    const val = parseFloat(parts[1]) || 0;
 
-    if (cmd === '/pos' && baseProgress) {
-      baseProgress.style.width = (val * 100) + '%';
-    } else if (cmd === '/note' && eventsLayer) {
-      const noteEl = document.createElement('div');
-      noteEl.style.cssText = 'position:absolute; left:' + (val * 100) + '%; top:0; width:3px; height:100%; background:#FFEB3B;';
-      eventsLayer.appendChild(noteEl);
-    } else if (cmd === '/cc' && eventsLayer) {
-      const ccEl = document.createElement('div');
-      ccEl.style.cssText = 'position:absolute; left:' + (val * 100) + '%; top:0; width:2px; height:100%; background:#9C27B0;';
-      eventsLayer.appendChild(ccEl);
-    } else if (cmd === '/reset') {
-      if (baseProgress) baseProgress.style.width = '0%';
-      if (eventsLayer) eventsLayer.innerHTML = '';
+    if (cmd === '/state') {
+      const newState = parts[1] || 'IDLE';
+      
+      if ((currentLooperState === 'RECORDING' || currentLooperState === 'OVERDUB') && 
+          (newState === 'PLAYING' || newState === 'IDLE')) {
+        finalizeRecLayout();
+      }
+
+      currentLooperState = newState;
+      statusBar.className = currentLooperState;
+      statusBar.innerText = "СОСТОЯНИЕ: " + currentLooperState;
+    }
+    else if (cmd === '/pos') {
+      const val = parseFloat(parts[1]) || 0;
+      currentPlaybackNormPos = val;
+      
+      if (finalLoopMs > 0) {
+        baseProgress.style.width = (val * 100) + '%';
+        const currentBar = Math.min(Math.floor(val * totalRecordedBars) + 1, totalRecordedBars);
+        barCounter.innerText = "Такт: " + currentBar + " / " + totalRecordedBars;
+      } else {
+        baseProgress.style.width = '0%';
+        barCounter.innerText = "Такт: 1 (Готов к записи)";
+      }
+      
+      const currentQuarter = Math.floor(val * 4) % 4;
+      const quarterProgress = (val * 4) % 1;
+      updateQuarterBeats(currentQuarter, quarterProgress);
+
+      updateActiveOverdubNotes();
+    } 
+    else if (cmd === '/rec_pos') {
+      const currentMs = parseFloat(parts[1]) || 1;
+      finalLoopMs = currentMs;
+      baseProgress.style.width = '100%'; 
+
+      const currentBar = Math.floor(currentMs / msPerBar) + 1;
+      barCounter.innerText = "Запись... Такт: " + currentBar;
+
+      if (currentBar > createdBarLines.length + 1) {
+        addBarLineAtMs(createdBarLines.length + 1);
+      }
+      updateBarLinesPositions(currentMs);
+
+      const currentQuarter = Math.floor((currentMs % msPerBar) / (msPerBar / 4));
+      const quarterProgress = ((currentMs % (msPerBar / 4)) / (msPerBar / 4));
+      updateQuarterBeats(currentQuarter, quarterProgress);
+
+      updateRecElements(currentMs);
+    }
+    else if (cmd === '/cc' || cmd === '/rec_cc') {
+      const rawVal = parseFloat(parts[1]) || 0;
+      const isWriting = (currentLooperState === 'RECORDING' || currentLooperState === 'OVERDUB' || cmd === '/rec_cc');
+      
+      if (isWriting) {
+        const ccEl = document.createElement('div');
+        ccEl.className = 'cc-block';
+        
+        let startMs = 0;
+        let startPos = 0;
+
+        if (currentLooperState === 'OVERDUB') {
+          startPos = currentPlaybackNormPos;
+          startMs = startPos * finalLoopMs;
+          ccEl.style.left = (startPos * 100) + '%';
+        } else {
+          startMs = rawVal;
+        }
+
+        eventsLayer.appendChild(ccEl);
+        const item = { type: 'cc', el: ccEl, startMs: startMs, startPos: startPos };
+        recEventsTemp.push(item);
+        allCcEvents.push(item);
+      }
+    }
+    else if (cmd === '/noteon' || cmd === '/rec_noteon') {
+      const noteNum = parseInt(parts[1]) || 60;
+      const rawVal = parseFloat(parts[2]) || 0;
+      const isWriting = (currentLooperState === 'RECORDING' || currentLooperState === 'OVERDUB' || cmd === '/rec_noteon');
+      
+      const keyIdx = (noteNum - MIN_NOTE) % TOTAL_KEYS;
+      if (keyElements[keyIdx]) {
+        keyElements[keyIdx].classList.add('active');
+        createParticlesForKey(keyIdx);
+      }
+
+      if (isWriting) {
+        const noteEl = document.createElement('div');
+        noteEl.className = 'note-block';
+        noteEl.style.top = getNoteYPosition(noteNum) + '%';
+        noteEl.style.height = '4px';
+        noteEl.style.backgroundColor = LIVE_NOTE_COLOR;
+
+        let startPos = 0;
+        let startMs = 0;
+
+        if (currentLooperState === 'OVERDUB') {
+          startPos = currentPlaybackNormPos;
+          startMs = startPos * finalLoopMs;
+          noteEl.style.left = (startPos * 100) + '%';
+        } else {
+          startMs = rawVal;
+        }
+
+        noteEl.style.width = '0.5%';
+        eventsLayer.appendChild(noteEl);
+
+        const item = { 
+          type: 'note', 
+          note: noteNum, 
+          keyIdx: keyIdx,
+          el: noteEl, 
+          color: LIVE_NOTE_COLOR,
+          startMs: startMs,
+          endMs: null,
+          startPos: startPos,
+          endPos: null
+        };
+
+        recEventsTemp.push(item);
+        allRecordedNotes.push(item);
+        activeNotes[noteNum] = item;
+      }
+
+      if (activeLiveNoteMap[noteNum]) {
+        activeLiveNoteMap[noteNum].active = false;
+      }
+
+      const liveNote = {
+        noteNum: noteNum,
+        keyIdx: keyIdx,
+        y: canvas.height - 10, 
+        height: 10,
+        color: LIVE_NOTE_COLOR,
+        active: true
+      };
+      liveWaterfallNotes.push(liveNote);
+      activeLiveNoteMap[noteNum] = liveNote;
+    } 
+    else if (cmd === '/noteoff' || cmd === '/rec_noteoff') {
+      const noteNum = parseInt(parts[1]) || 60;
+      const rawVal = parseFloat(parts[2]) || 0;
+      
+      if (activeNotes[noteNum]) {
+        const item = activeNotes[noteNum];
+        if (keyElements[item.keyIdx]) {
+          keyElements[item.keyIdx].classList.remove('active');
+        }
+
+        if (currentLooperState === 'OVERDUB') {
+          let endPos = currentPlaybackNormPos;
+          if (endPos < item.startPos) endPos += 1.0;
+          item.endPos = endPos;
+          item.el.style.width = Math.max((endPos - item.startPos) * 100, 0.4) + '%';
+        } else {
+          item.endMs = rawVal > item.startMs ? rawVal : (item.startMs + 50);
+        }
+
+        delete activeNotes[noteNum];
+      } else {
+        const keyIdx = (noteNum - MIN_NOTE) % TOTAL_KEYS;
+        if (keyElements[keyIdx]) keyElements[keyIdx].classList.remove('active');
+      }
+
+      if (activeLiveNoteMap[noteNum]) {
+        activeLiveNoteMap[noteNum].active = false;
+        delete activeLiveNoteMap[noteNum];
+      }
+    } 
+    else if (cmd === '/reset') {
+      baseProgress.style.width = '0%';
+      eventsLayer.innerHTML = '';
+      clearBarLines();
+      activeNotes = {};
+      recEventsTemp = [];
+      allRecordedNotes = [];
+      allCcEvents = [];
+      liveWaterfallNotes = [];
+      activeLiveNoteMap = {};
+      particles = [];
+      currentLooperState = 'IDLE';
+      finalLoopMs = 0;
+      barCounter.innerText = "Такт: 1";
+      statusBar.className = "IDLE";
+      statusBar.innerText = "СОСТОЯНИЕ: IDLE";
+      resetQuarterBeats();
+      keyElements.forEach(k => k.classList.remove('active'));
     }
   }
+
+  function updateActiveOverdubNotes() {
+    if (currentLooperState !== 'OVERDUB') return;
+
+    for (let noteNum in activeNotes) {
+      const item = activeNotes[noteNum];
+      let currentPos = currentPlaybackNormPos;
+      if (currentPos < item.startPos) currentPos += 1.0;
+      
+      const widthPct = Math.max((currentPos - item.startPos) * 100, 0.4);
+      item.el.style.width = widthPct + '%';
+    }
+  }
+
+  function addBarLineAtMs(barIndex) {
+    const line = document.createElement('div');
+    line.className = 'bar-grid-line';
+    trackEl.appendChild(line);
+    createdBarLines.push({ el: line, barIndex: barIndex });
+  }
+
+  function updateBarLinesPositions(totalMs) {
+    createdBarLines.forEach(item => {
+      const posPct = ((item.barIndex * msPerBar) / totalMs) * 100;
+      item.el.style.left = posPct + '%';
+    });
+  }
+
+  function finalizeRecLayout() {
+    totalRecordedBars = Math.max(1, Math.round(finalLoopMs / msPerBar));
+
+    allRecordedNotes.forEach(item => {
+      if ((item.startPos === 0 || item.startPos === undefined) && item.startMs > 0 && finalLoopMs > 0) {
+        item.startPos = item.startMs / finalLoopMs;
+        const endMs = item.endMs ? item.endMs : finalLoopMs;
+        item.endPos = endMs / finalLoopMs;
+
+        item.el.style.left = (item.startPos * 100) + '%';
+        item.el.style.width = Math.max((item.endPos - item.startPos) * 100, 0.4) + '%';
+      }
+    });
+
+    allCcEvents.forEach(item => {
+      if ((item.startPos === 0 || item.startPos === undefined) && item.startMs > 0 && finalLoopMs > 0) {
+        item.startPos = item.startMs / finalLoopMs;
+        item.el.style.left = (item.startPos * 100) + '%';
+      }
+    });
+    
+    for (let noteNum in activeNotes) {
+      const item = activeNotes[noteNum];
+      if (item.endPos === null) {
+        let endPos = currentPlaybackNormPos;
+        if (endPos < item.startPos) endPos += 1.0;
+        item.endPos = endPos;
+        item.el.style.width = Math.max((endPos - item.startPos) * 100, 0.4) + '%';
+      }
+    }
+
+    clearBarLines();
+    for (let i = 1; i < totalRecordedBars; i++) {
+      const line = document.createElement('div');
+      line.className = 'bar-grid-line';
+      line.style.left = ((i / totalRecordedBars) * 100) + '%';
+      trackEl.appendChild(line);
+      createdBarLines.push({ el: line });
+    }
+
+    recEventsTemp = [];
+    activeNotes = {};
+  }
+
+  function clearBarLines() {
+    createdBarLines.forEach(item => item.el.remove());
+    createdBarLines = [];
+  }
+
+  function updateQuarterBeats(currentBeat, subProgress) {
+    beatBoxes.forEach((box, idx) => {
+      const progEl = box.querySelector('.beat-progress');
+      if (idx < currentBeat) {
+        box.classList.remove('active');
+        progEl.style.width = '100%';
+      } else if (idx === currentBeat) {
+        box.classList.add('active');
+        progEl.style.width = (subProgress * 100) + '%';
+      } else {
+        box.classList.remove('active');
+        progEl.style.width = '0%';
+      }
+    });
+  }
+
+  function resetQuarterBeats() {
+    beatBoxes.forEach(box => {
+      box.classList.remove('active');
+      box.querySelector('.beat-progress').style.width = '0%';
+    });
+  }
+
+  function updateRecElements(maxMs) {
+    recEventsTemp.forEach(item => {
+      const leftPct = (item.startMs / maxMs) * 100;
+      item.el.style.left = leftPct + '%';
+
+      if (item.type === 'note') {
+        const currentEnd = item.endMs ? item.endMs : maxMs;
+        const widthPct = Math.max(((currentEnd - item.startMs) / maxMs) * 100, 0.4);
+        item.el.style.width = widthPct + '%';
+      }
+    });
+  }
+
+  function createParticlesForKey(keyIdx) {
+    const keyWidth = canvas.width / TOTAL_KEYS;
+    const centerX = keyIdx * keyWidth + keyWidth / 2;
+    for (let i = 0; i < 4; i++) {
+      particles.push({
+        x: centerX + (Math.random() - 0.5) * keyWidth,
+        y: canvas.height - 4,
+        vx: (Math.random() - 0.5) * 2,
+        vy: -Math.random() * 3 - 1,
+        alpha: 1,
+        size: Math.random() * 3 + 1
+      });
+    }
+  }
+
+  function drawWaterfall() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const keyWidth = canvas.width / TOTAL_KEYS;
+
+    // 1. Живой водопад (ЖЁЛТЫЕ НОТЫ)
+    for (let i = liveWaterfallNotes.length - 1; i >= 0; i--) {
+      const note = liveWaterfallNotes[i];
+      const x = note.keyIdx * keyWidth + 1;
+      const w = keyWidth - 2;
+
+      if (note.active) {
+        note.height += 3.5;
+        note.y -= 3.5;
+        if (note.y + note.height < 0) note.active = false;
+      } else {
+        note.y -= 3.5;
+      }
+
+      if (note.y + note.height > 0) {
+        ctx.fillStyle = LIVE_NOTE_COLOR;
+        ctx.shadowColor = LIVE_NOTE_COLOR;
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.roundRect(x, note.y, w, note.height, 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      } else {
+        liveWaterfallNotes.splice(i, 1);
+      }
+    }
+
+    // 2. Записанный/отражённый водопад (ФИОЛЕТОВЫЕ НОТЫ)
+    if (currentLooperState !== 'RECORDING' && finalLoopMs > 0) {
+      allRecordedNotes.forEach(item => {
+        if (item.startPos === null || item.startPos === undefined) return;
+
+        let startNorm = item.startPos;
+        let endNorm = item.endPos || (item.startPos + 0.03);
+
+        const x = item.keyIdx * keyWidth + 1;
+        const w = keyWidth - 2;
+
+        const speed = 0.85;
+        let timeDiff = (currentPlaybackNormPos - startNorm);
+        if (timeDiff < -0.5) timeDiff += 1.0; 
+
+        const y = (timeDiff * canvas.height * speed) + (canvas.height - 5);
+        const h = Math.max((endNorm - startNorm) * canvas.height * speed, 8);
+
+        if (y - h < canvas.height && y > -50) {
+          ctx.fillStyle = LOOP_NOTE_COLOR;
+          ctx.shadowColor = LOOP_NOTE_COLOR;
+          ctx.shadowBlur = 6;
+          
+          ctx.beginPath();
+          ctx.roundRect(x, y - h, w, h, 2);
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+      });
+    }
+
+    // 3. Частицы
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.alpha -= 0.03;
+
+      if (p.alpha <= 0) {
+        particles.splice(i, 1);
+      } else {
+        ctx.fillStyle = `rgba(255, 215, 0, ${p.alpha})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    requestAnimationFrame(drawWaterfall);
+  }
+
+  requestAnimationFrame(drawWaterfall);
 </script>
 </body>
 </html>
