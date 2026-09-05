@@ -6,38 +6,105 @@
   <title>ESP32 MIDI Looper UI</title>
   <style>
     * { box-sizing: border-box; }
-    body { 
-      background: #121212; 
-      color: #fff; 
-      font-family: system-ui, sans-serif; 
-      display: flex; 
-      flex-direction: column; 
-      align-items: center; 
-      padding: 15px; 
+    body {
+      background: #121212;
+      color: #fff;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 15px;
       margin: 0;
       height: 100vh;
       overflow: hidden;
     }
-    
-    button { 
-      padding: 10px 20px; 
-      font-size: 15px; 
-      font-weight: bold; 
-      border: none; 
-      border-radius: 6px; 
-      background: #2196F3; 
-      color: white; 
-      cursor: pointer; 
+    button {
+      padding: 10px 20px;
+      font-size: 15px;
+      font-weight: bold;
+      border: none;
+      border-radius: 6px;
+      background: #2196F3;
+      color: white;
+      cursor: pointer;
       z-index: 10;
     }
-
     #bar-counter {
       font-size: 18px;
       font-weight: bold;
       margin-top: 8px;
       color: #FFEB3B;
     }
-
+    /* ПРЕСЕТЫ ЛУПОВ */
+    #presets-container {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      max-width: 800px;
+      margin-top: 10px;
+    }
+    .preset-slot {
+      flex: 1;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .preset-slot.filled {
+      border-color: #4CAF50;
+    }
+    .preset-slot.pending {
+      border-color: #ff9800;
+      animation: presetPendingPulse 0.8s ease-in-out infinite;
+    }
+    @keyframes presetPendingPulse {
+      0%, 100% { box-shadow: 0 0 4px rgba(255,152,0,0.4); }
+      50% { box-shadow: 0 0 16px rgba(255,152,0,0.95); }
+    }
+    .preset-label {
+      font-size: 20px;
+      font-weight: 800;
+      color: #999;
+      cursor: pointer;
+      user-select: none;
+      padding: 12px 4px;
+      width: 100%;
+      text-align: center;
+      border-radius: 6px;
+      background: #222;
+      transition: background 0.15s;
+    }
+    .preset-label:active {
+      background: #333;
+    }
+    .preset-slot.filled .preset-label {
+      color: #fff;
+      background: #1b3a1b;
+    }
+    .preset-buttons {
+      display: flex;
+      gap: 6px;
+      width: 100%;
+    }
+    .btnPresetSave, .btnPresetDel {
+      flex: 1;
+      padding: 4px 0;
+      font-size: 12px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+      color: #fff;
+    }
+    .btnPresetSave { background: #2e7d32; }
+    .btnPresetSave:hover { background: #388e3c; }
+    .btnPresetDel { background: #c62828; }
+    .btnPresetDel:hover { background: #d32f2f; }
     /* ВОДОПАД (SYNTHESIA) */
     #waterfall-section {
       position: relative;
@@ -52,13 +119,11 @@
       display: flex;
       flex-direction: column;
     }
-
     #waterfall-canvas {
       width: 100%;
       flex: 1;
       display: block;
     }
-
     /* КЛАВИАТУРА ПИАНИНО С ЧЕРНЫМИ И БЕЛЫМИ КЛАВИШАМИ */
     #keyboard {
       position: relative;
@@ -68,7 +133,6 @@
       display: flex;
       border-top: 2px solid #ff0055;
     }
-
     .key {
       position: relative;
       background: #eee;
@@ -76,13 +140,11 @@
       border-radius: 0 0 3px 3px;
       transition: background 0.05s, box-shadow 0.05s;
     }
-
     .key.white {
       flex: 1;
       height: 100%;
       z-index: 1;
     }
-
     .key.black {
       position: absolute;
       top: 0;
@@ -94,46 +156,41 @@
       border-radius: 0 0 2px 2px;
       transform: translateX(-50%);
     }
-
     .key.active {
       background: #FFD700 !important;
       box-shadow: 0 0 15px #FFD700, inset 0 0 8px #fff;
     }
-
     /* ТРЕК C ПИАНО РОЛЛОМ */
-    #track { 
-      position: relative; 
-      width: 100%; 
-      max-width: 800px; 
-      height: 200px; 
-      background: #1e1e1e; 
-      border-radius: 0 0 8px 8px; 
-      overflow: hidden; 
+    #track {
+      position: relative;
+      width: 100%;
+      max-width: 800px;
+      height: 200px;
+      background: #1e1e1e;
+      border-radius: 0 0 8px 8px;
+      overflow: hidden;
       border: 1px solid #333;
       border-top: none;
     }
-    
-    #base-progress { 
-      position: absolute; 
-      left: 0; 
-      top: 0; 
-      width: 0%; 
-      height: 100%; 
-      background: rgba(76, 175, 80, 0.2); 
-      border-right: 2px solid #4CAF50; 
+    #base-progress {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 0%;
+      height: 100%;
+      background: rgba(76, 175, 80, 0.2);
+      border-right: 2px solid #4CAF50;
       z-index: 1;
     }
-    
-    #events-layer { 
-      position: absolute; 
-      left: 0; 
-      top: 0; 
-      width: 100%; 
-      height: 100%; 
-      pointer-events: none; 
+    #events-layer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
       z-index: 3;
     }
-    
     .bar-grid-line {
       position: absolute;
       top: 0;
@@ -142,26 +199,32 @@
       background: rgba(255, 255, 255, 0.4);
       z-index: 2;
     }
-
-    .note-block { 
-      position: absolute; 
-      border-radius: 1px; 
+    .quarter-grid-line {
+      position: absolute;
+      top: 0;
+      height: 100%;
+      width: 0;
+      border-left: 1px dashed rgba(255, 255, 255, 0.18);
+      z-index: 1;
+      pointer-events: none;
+    }
+    .note-block {
+      position: absolute;
+      border-radius: 1px;
       opacity: 0.95;
       box-shadow: 0 0 2px rgba(0,0,0,0.5);
     }
-    
-    .cc-block { 
-      position: absolute; 
-      bottom: 2px; 
-      height: 30px; 
-      width: 2px; 
-      background: #E0B0FF; 
-      border-radius: 1px; 
+    .cc-block {
+      position: absolute;
+      bottom: 2px;
+      height: 30px;
+      width: 2px;
+      background: #E0B0FF;
+      border-radius: 1px;
       box-shadow: 0 0 4px rgba(224, 176, 255, 0.8);
       z-index: 4;
       transform: translateX(-50%);
     }
-    
     /* ИНДИКАТОР ЧЕТВЕРТЕЙ */
     #beats-container {
       display: flex;
@@ -171,7 +234,6 @@
       height: 32px;
       margin-top: 8px;
     }
-
     .beat-box {
       flex: 1;
       position: relative;
@@ -185,13 +247,11 @@
       font-size: 12px;
       color: #666;
     }
-
     .beat-box.active {
       border-color: #4CAF50;
       color: #fff;
       box-shadow: 0 0 8px rgba(76, 175, 80, 0.4);
     }
-
     .beat-progress {
       position: absolute;
       left: 0;
@@ -200,12 +260,16 @@
       width: 0%;
       background: rgba(76, 175, 80, 0.5);
     }
-
-    /* ИНДИКАТОР И КНОПКА СОСТОЯНИЯ */
-    #status-bar {
+    /* СТАТУС + RESET В ОДНОЙ СТРОКЕ */
+    #status-reset-row {
+      display: flex;
+      gap: 10px;
       width: 100%;
       max-width: 800px;
       margin-top: 10px;
+    }
+    #status-bar {
+      flex: 2;
       padding: 12px;
       border-radius: 6px;
       font-size: 16px;
@@ -219,16 +283,27 @@
       cursor: pointer;
       user-select: none;
     }
-
     #status-bar:active {
       transform: scale(0.98);
     }
-
     #status-bar.IDLE { background: #222; color: #888; border-color: #444; }
     #status-bar.RECORDING { background: #b71c1c; color: #fff; border-color: #ff5252; box-shadow: 0 0 10px rgba(255, 82, 82, 0.5); }
     #status-bar.PLAYING { background: #1b5e20; color: #fff; border-color: #4caf50; box-shadow: 0 0 10px rgba(76, 175, 80, 0.5); }
     #status-bar.OVERDUB { background: #e65100; color: #fff; border-color: #ff9800; box-shadow: 0 0 10px rgba(255, 152, 0, 0.5); }
-
+    #btnReset {
+      flex: 1;
+      background: #8b0000;
+      border: 1px solid #ff4444;
+      padding: 12px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 6px;
+      color: #fff;
+      cursor: pointer;
+    }
+    #btnReset:hover {
+      background: #a00000;
+    }
     /* КНОПКИ ВНИЗУ */
     #bottom-controls {
       display: flex;
@@ -237,47 +312,141 @@
       max-width: 800px;
       margin-top: 10px;
     }
-
     #bottom-controls button {
       flex: 1;
       background: #333;
       border: 1px solid #555;
       padding: 12px;
       font-size: 16px;
+      font-weight: bold;
       border-radius: 6px;
       color: #fff;
+      cursor: pointer;
     }
-
     #bottom-controls button:hover {
       background: #444;
     }
-
-    #btnReset {
-      background: #8b0000 !important;
-      border-color: #ff4444 !important;
+    .btn-octave {
+      background: #37474f !important;
+      border-color: #607d8b !important;
     }
-
-    #btnReset:hover {
-      background: #a00000 !important;
+    .btn-octave:hover {
+      background: #455a64 !important;
     }
+    /* --- ПАНЕЛЬ КВАНТИЗАЦИИ --- */
+    #quantize-panel {
+      width: 100%;
+      max-width: 800px;
+      margin-top: 10px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .quant-row-top {
+      display: flex;
+      gap: 6px;
+      width: 100%;
+    }
+    .quant-row-top .quant-group {
+      display: contents;
+    }
+    .quant-btn, .quant-apply-btn {
+      flex: 1;
+      text-align: center;
+    }
+    .quant-btn {
+      background: #333;
+      border: 1px solid #555;
+      color: #999;
+      padding: 10px 4px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .quant-btn:hover { background: #444; }
+    .quant-btn.active {
+      background: #1565c0;
+      border-color: #2196F3;
+      color: #fff;
+      box-shadow: 0 0 8px rgba(33,150,243,0.5);
+    }
+    .quant-apply-btn {
+      background: #2196F3;
+      border: 1px solid #42a5f5;
+      color: #fff;
+      padding: 10px 4px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.15s, box-shadow 0.15s, border-color 0.15s;
+    }
+    .quant-apply-btn:hover { background: #1e88e5; }
+    .quant-row-bottom {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .quant-slider-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 120px;
+    }
+    .quant-slider-wrap input[type="range"] {
+      flex: 1;
+      accent-color: #2196F3;
+      min-width: 0;
+    }
+    #quantSliderLabel {
+      min-width: 40px;
+      text-align: right;
+      font-size: 13px;
+      color: #ccc;
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+    .quant-target-toggle-btn {
+      background: #1b5e20;
+      border: 1px solid #4caf50;
+      color: #fff;
+      width: 64px;
+      height: 38px;
+      border-radius: 6px;
+      font-size: 26px;
+      line-height: 1;
+      -webkit-text-stroke: 1.5px currentColor;
+      cursor: pointer;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      flex-shrink: 0;
+      transition: all 0.15s;
+    }
+    .quant-target-toggle-btn:hover { background: #1f6b24; }
   </style>
 </head>
 <body>
-
   <button id="connectBtn">Подключить ESP32</button>
-
   <div id="bar-counter">Такт: 1</div>
-
+  <div id="presets-container"></div>
   <div id="waterfall-section">
     <canvas id="waterfall-canvas"></canvas>
     <div id="keyboard"></div>
   </div>
-
   <div id="track">
     <div id="base-progress"></div>
     <div id="events-layer"></div>
   </div>
-
   <div id="beats-container">
     <div class="beat-box" id="beat-0"><div class="beat-progress"></div>1/4</div>
     <div class="beat-box" id="beat-1"><div class="beat-progress"></div>2/4</div>
@@ -285,79 +454,161 @@
     <div class="beat-box" id="beat-3"><div class="beat-progress"></div>4/4</div>
   </div>
 
-  <div id="status-bar" class="IDLE">СОСТОЯНИЕ: IDLE</div>
+  <div id="status-reset-row">
+    <div id="status-bar" class="IDLE">СОСТОЯНИЕ: IDLE</div>
+    <button id="btnReset">Reset</button>
+  </div>
 
   <div id="bottom-controls">
+    <button id="btnOctDown" class="btn-octave">-12</button>
+    <button id="btnOctUp" class="btn-octave">+12</button>
     <button id="btnDivide">/2</button>
     <button id="btnMultiply">x2</button>
-    <button id="btnReset">Reset</button>
+  </div>
+
+  <div id="quantize-panel">
+    <div class="quant-row-top">
+      <div class="quant-group" id="quantGridGroup">
+        <button class="quant-btn active" data-grid="0">OFF</button>
+        <button class="quant-btn" data-grid="1">Q32</button>
+        <button class="quant-btn" data-grid="2">Q16</button>
+        <button class="quant-btn" data-grid="3">Q8</button>
+        <button class="quant-btn" data-grid="4">Q4</button>
+      </div>
+      <button id="btnQuantApply" class="quant-apply-btn" title="Применить квантование к уже записанному лупу">Apply</button>
+    </div>
+    <div class="quant-row-bottom">
+      <div class="quant-slider-wrap">
+        <input type="range" id="quantSlider" min="0" max="100" value="100">
+        <span id="quantSliderLabel">100%</span>
+      </div>
+      <button id="btnQuantTarget" class="quant-target-toggle-btn" title="Квантовать начало и конец">↔</button>
+    </div>
   </div>
 
 <script>
   const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
   const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
-
   const trackEl = document.getElementById('track');
   const baseProgress = document.getElementById('base-progress');
   const eventsLayer = document.getElementById('events-layer');
   const connectBtn = document.getElementById('connectBtn');
   const barCounter = document.getElementById('bar-counter');
   const statusBar = document.getElementById('status-bar');
-  
+  const presetsContainer = document.getElementById('presets-container');
+  const PRESET_COUNT = 5;
+  let presetFilled = {};
+  let pendingLoadSlotUI = 0;
+
+  const btnOctDown = document.getElementById('btnOctDown');
+  const btnOctUp = document.getElementById('btnOctUp');
   const btnDivide = document.getElementById('btnDivide');
   const btnMultiply = document.getElementById('btnMultiply');
   const btnReset = document.getElementById('btnReset');
-  
+
+  btnOctDown.addEventListener('click', () => sendBleCommand('/transpose -12'));
+  btnOctUp.addEventListener('click', () => sendBleCommand('/transpose 12'));
+
+  // --- Квантизация: элементы и состояние ---
+  let quantGridState = 0;
+  let quantStrengthState = 100;
+  let quantTargetState = 2;
+  const quantGridButtons = document.querySelectorAll('#quantGridGroup .quant-btn');
+  const quantSlider = document.getElementById('quantSlider');
+  const quantSliderLabel = document.getElementById('quantSliderLabel');
+  const btnQuantApply = document.getElementById('btnQuantApply');
+  const btnQuantTarget = document.getElementById('btnQuantTarget');
+  const QUANT_TARGET_ICONS = ['←', '→', '↔'];
+  const QUANT_TARGET_TITLES = ['Квантовать начало', 'Квантовать конец', 'Квантовать начало и конец'];
+
+  function updateQuantGridButtons() {
+    quantGridButtons.forEach(btn => {
+      btn.classList.toggle('active', parseInt(btn.dataset.grid) === quantGridState);
+    });
+  }
+  function updateQuantTargetButton() {
+    btnQuantTarget.innerText = QUANT_TARGET_ICONS[quantTargetState];
+    btnQuantTarget.title = QUANT_TARGET_TITLES[quantTargetState];
+  }
+  function flashApplyButton(color) {
+    btnQuantApply.style.boxShadow = '0 0 10px ' + color;
+    btnQuantApply.style.borderColor = color;
+    setTimeout(() => {
+      btnQuantApply.style.boxShadow = '';
+      btnQuantApply.style.borderColor = '';
+    }, 500);
+  }
+
+  quantGridButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      quantGridState = parseInt(btn.dataset.grid);
+      updateQuantGridButtons();
+      sendBleCommand('/qgrid ' + quantGridState);
+    });
+  });
+
+  btnQuantTarget.addEventListener('click', () => {
+    quantTargetState = (quantTargetState + 1) % 3;
+    updateQuantTargetButton();
+    sendBleCommand('/qtarget ' + quantTargetState);
+  });
+
+  btnQuantApply.addEventListener('click', () => {
+    sendBleCommand('/qapply');
+  });
+
+  let quantSliderDebounce = null;
+  quantSlider.addEventListener('input', () => {
+    quantStrengthState = parseInt(quantSlider.value);
+    quantSliderLabel.innerText = quantStrengthState + '%';
+    clearTimeout(quantSliderDebounce);
+    quantSliderDebounce = setTimeout(() => {
+      sendBleCommand('/qstrength ' + quantStrengthState);
+    }, 120);
+  });
+  quantSlider.addEventListener('change', () => {
+    sendBleCommand('/qstrength ' + quantStrengthState);
+  });
+
   const canvas = document.getElementById('waterfall-canvas');
   const ctx = canvas.getContext('2d');
   const keyboard = document.getElementById('keyboard');
-
   const MIN_NOTE = 48; // C3
   const MAX_NOTE = 72; // C5 (2 октавы, 25 нот)
   const TOTAL_NOTES = MAX_NOTE - MIN_NOTE + 1;
-
-  // Маска черных клавиш внутри одной октавы (0 = C, 1 = C#, 2 = D ...)
   const isBlackNotePattern = [false, true, false, true, false, false, true, false, true, false, true, false];
-
   const keyElements = {};
-  const keyXPositions = {}; // Точные центральные позиции клавиш
+  const keyXPositions = {};
   let characteristicRef = null;
-
-  // Построение клавиатуры
   function buildKeyboard() {
     keyboard.innerHTML = '';
-    
-    // Считаем количество белых клавиш
+
     let whiteKeysCount = 0;
     for (let note = MIN_NOTE; note <= MAX_NOTE; note++) {
       if (!isBlackNotePattern[note % 12]) whiteKeysCount++;
     }
-
     let whiteIndex = 0;
     for (let note = MIN_NOTE; note <= MAX_NOTE; note++) {
       const isBlack = isBlackNotePattern[note % 12];
       const key = document.createElement('div');
-      
+
       if (!isBlack) {
         key.className = 'key white';
         keyboard.appendChild(key);
         keyElements[note] = key;
-        
-        // Запоминаем центр белой клавиши
+
         const centerPct = ((whiteIndex + 0.5) / whiteKeysCount) * 100;
         keyXPositions[note] = centerPct;
         whiteIndex++;
       }
     }
-
-    // Добавляем черные клавиши с позиционированием поверх границ
     whiteIndex = 0;
     for (let note = MIN_NOTE; note <= MAX_NOTE; note++) {
       const isBlack = isBlackNotePattern[note % 12];
       if (isBlack) {
         const key = document.createElement('div');
         key.className = 'key black';
-        
+
         const leftPct = (whiteIndex / whiteKeysCount) * 100;
         key.style.left = leftPct + '%';
         keyboard.appendChild(key);
@@ -368,8 +619,65 @@
       }
     }
   }
-
   buildKeyboard();
+
+  function buildPresetSlots() {
+    presetsContainer.innerHTML = '';
+    for (let i = 1; i <= PRESET_COUNT; i++) {
+      const slot = document.createElement('div');
+      slot.className = 'preset-slot';
+      slot.dataset.slot = i;
+      slot.innerHTML =
+        '<div class="preset-label">P' + i + '</div>' +
+        '<div class="preset-buttons">' +
+          '<button class="btnPresetSave" type="button">Save</button>' +
+          '<button class="btnPresetDel" type="button">✕</button>' +
+        '</div>';
+      presetsContainer.appendChild(slot);
+
+      slot.querySelector('.preset-label').addEventListener('click', () => loadPresetSlot(i));
+
+      slot.querySelector('.btnPresetSave').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (confirm('Сохранить текущий луп в слот P' + i + '? Старые данные (если есть) будут перезаписаны.')) {
+          sendBleCommand('/save ' + i);
+        }
+      });
+      slot.querySelector('.btnPresetDel').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (confirm('Удалить пресет P' + i + '?')) {
+          sendBleCommand('/delp ' + i);
+        }
+      });
+    }
+  }
+  buildPresetSlots();
+
+  function loadPresetSlot(i) {
+    if (!presetFilled[i]) return;
+    sendBleCommand('/load ' + i);
+  }
+  function updatePresetSlotVisual(i, filled) {
+    presetFilled[i] = filled;
+    const slot = presetsContainer.querySelector('.preset-slot[data-slot="' + i + '"]');
+    if (!slot) return;
+    slot.classList.toggle('filled', filled);
+  }
+  function markPresetPending(slot, pending) {
+    const el = presetsContainer.querySelector('.preset-slot[data-slot="' + slot + '"]');
+    if (!el) return;
+    el.classList.toggle('pending', pending);
+  }
+  function flashPresetSlot(slot, color) {
+    const el = presetsContainer.querySelector('.preset-slot[data-slot="' + slot + '"]');
+    if (!el) return;
+    el.style.boxShadow = '0 0 10px ' + color;
+    el.style.borderColor = color;
+    setTimeout(() => {
+      el.style.boxShadow = '';
+      el.style.borderColor = '';
+    }, 600);
+  }
 
   function resizeCanvas() {
     canvas.width = canvas.clientWidth;
@@ -377,33 +685,28 @@
   }
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
-
   const beatBoxes = [
     document.getElementById('beat-0'),
     document.getElementById('beat-1'),
     document.getElementById('beat-2'),
     document.getElementById('beat-3')
   ];
-
-  let activeNotes = {}; 
-  let recEventsTemp = []; 
+  let activeNotes = {};
+  let recEventsTemp = [];
   let currentLooperState = 'IDLE';
-
-  let msPerBar = 2000; 
-  let createdBarLines = []; 
+  let msPerBar = 2000; // будет обновлено реальным темпом через /beatinfo
+  let createdBarLines = [];
+  let createdQuarterLines = [];
   let totalRecordedBars = 1;
   let finalLoopMs = 0;
   let currentPlaybackNormPos = 0;
-
-  let allRecordedNotes = []; 
+  let allRecordedNotes = [];
   let allCcEvents = [];
-  let liveWaterfallNotes = []; 
-  let activeLiveNoteMap = {}; 
+  let liveWaterfallNotes = [];
+  let activeLiveNoteMap = {};
   let particles = [];
-
-  const LIVE_NOTE_COLOR = '#FFD700'; 
-  const LOOP_NOTE_COLOR = '#B026FF'; 
-
+  const LIVE_NOTE_COLOR = '#FFD700';
+  const LOOP_NOTE_COLOR = '#B026FF';
   async function sendBleCommand(cmdStr) {
     if (characteristicRef) {
       try {
@@ -414,8 +717,6 @@
       }
     }
   }
-
-  // Клик по статус-бару
   statusBar.addEventListener('click', async () => {
     if (currentLooperState === 'IDLE') {
       await sendBleCommand('/rec');
@@ -427,13 +728,10 @@
       await sendBleCommand('/play');
     }
   });
-
   function divideLoop() {
     if (finalLoopMs <= 0) return;
-
     finalLoopMs /= 2;
     totalRecordedBars = Math.max(1, Math.round(finalLoopMs / msPerBar));
-
     let newNotes = [];
     allRecordedNotes.forEach(item => {
       if (item.startMs < finalLoopMs) {
@@ -450,7 +748,6 @@
       }
     });
     allRecordedNotes = newNotes;
-
     allCcEvents = allCcEvents.filter(item => {
       if (item.startMs < finalLoopMs) {
         item.startPos = item.startMs / finalLoopMs;
@@ -460,41 +757,32 @@
       item.el.remove();
       return false;
     });
-
     redrawBarLines();
+    redrawQuarterLines();
   }
-
   function multiplyLoop() {
     if (finalLoopMs <= 0) return;
-
     const oldLoopMs = finalLoopMs;
     finalLoopMs *= 2;
     totalRecordedBars = Math.max(1, Math.round(finalLoopMs / msPerBar));
-
     let duplicatedNotes = [];
-
     allRecordedNotes.forEach(item => {
       item.startPos = item.startMs / finalLoopMs;
       item.endPos = (item.endMs || oldLoopMs) / finalLoopMs;
       item.el.style.left = (item.startPos * 100) + '%';
       item.el.style.width = Math.max((item.endPos - item.startPos) * 100, 0.4) + '%';
-
       const copyStartMs = item.startMs + oldLoopMs;
       const copyEndMs = item.endMs ? (item.endMs + oldLoopMs) : finalLoopMs;
-
       const noteEl = document.createElement('div');
       noteEl.className = 'note-block';
       noteEl.style.top = getNoteYPosition(item.note) + '%';
       noteEl.style.height = '4px';
       noteEl.style.backgroundColor = item.color;
-
       const copyStartPos = copyStartMs / finalLoopMs;
       const copyEndPos = copyEndMs / finalLoopMs;
-
       noteEl.style.left = (copyStartPos * 100) + '%';
       noteEl.style.width = Math.max((copyEndPos - copyStartPos) * 100, 0.4) + '%';
       eventsLayer.appendChild(noteEl);
-
       duplicatedNotes.push({
         type: 'note',
         note: item.note,
@@ -506,22 +794,17 @@
         endPos: copyEndPos
       });
     });
-
     allRecordedNotes = allRecordedNotes.concat(duplicatedNotes);
-
     let duplicatedCc = [];
     allCcEvents.forEach(item => {
       item.startPos = item.startMs / finalLoopMs;
       item.el.style.left = (item.startPos * 100) + '%';
-
       const copyStartMs = item.startMs + oldLoopMs;
       const copyStartPos = copyStartMs / finalLoopMs;
-
       const ccEl = document.createElement('div');
       ccEl.className = 'cc-block';
       ccEl.style.left = (copyStartPos * 100) + '%';
       eventsLayer.appendChild(ccEl);
-
       duplicatedCc.push({
         type: 'cc',
         el: ccEl,
@@ -529,12 +812,10 @@
         startPos: copyStartPos
       });
     });
-
     allCcEvents = allCcEvents.concat(duplicatedCc);
-
     redrawBarLines();
+    redrawQuarterLines();
   }
-
   function redrawBarLines() {
     clearBarLines();
     for (let i = 1; i < totalRecordedBars; i++) {
@@ -545,22 +826,34 @@
       createdBarLines.push({ el: line });
     }
   }
-
+  function redrawQuarterLines() {
+    clearQuarterLines();
+    const totalQuarters = totalRecordedBars * 4;
+    for (let i = 1; i < totalQuarters; i++) {
+      if (i % 4 === 0) continue;
+      const line = document.createElement('div');
+      line.className = 'quarter-grid-line';
+      line.style.left = ((i / totalQuarters) * 100) + '%';
+      trackEl.appendChild(line);
+      createdQuarterLines.push({ el: line });
+    }
+  }
+  function clearQuarterLines() {
+    createdQuarterLines.forEach(item => item.el.remove());
+    createdQuarterLines = [];
+  }
   btnDivide.addEventListener('click', () => {
     sendBleCommand('/half');
     divideLoop();
   });
-
   btnMultiply.addEventListener('click', () => {
     sendBleCommand('/double');
     multiplyLoop();
   });
-
   btnReset.addEventListener('click', async () => {
     await sendBleCommand('/reset');
     executeLocalReset();
   });
-
   connectBtn.addEventListener('click', async function() {
     try {
       connectBtn.innerText = "Поиск...";
@@ -568,17 +861,15 @@
         acceptAllDevices: true,
         optionalServices: [SERVICE_UUID]
       });
-
       connectBtn.innerText = "Подключение...";
       const server = await device.gatt.connect();
       await new Promise(r => setTimeout(r, 200));
-
       const service = await server.getPrimaryService(SERVICE_UUID);
       characteristicRef = await service.getCharacteristic(CHARACTERISTIC_UUID);
-
       await characteristicRef.startNotifications();
       characteristicRef.addEventListener('characteristicvaluechanged', handleData);
-
+      await sendBleCommand('/getpresets');
+      await sendBleCommand('/getquant');
       connectBtn.innerText = "Подключено!";
       connectBtn.style.background = "#4CAF50";
     } catch (error) {
@@ -586,16 +877,15 @@
       connectBtn.style.background = "#F44336";
     }
   });
-
   function getNoteYPosition(noteNum) {
     const normalizedNote = Math.max(0, Math.min(1, (noteNum - MIN_NOTE) / (MAX_NOTE - MIN_NOTE)));
-    return (72 - normalizedNote * 62); 
+    return (72 - normalizedNote * 62);
   }
-
   function executeLocalReset() {
     baseProgress.style.width = '0%';
     eventsLayer.innerHTML = '';
     clearBarLines();
+    clearQuarterLines();
     activeNotes = {};
     recEventsTemp = [];
     allRecordedNotes = [];
@@ -609,32 +899,99 @@
     barCounter.innerText = "Такт: 1";
     statusBar.className = "IDLE";
     statusBar.innerText = "СОСТОЯНИЕ: IDLE";
+    if (pendingLoadSlotUI) { markPresetPending(pendingLoadSlotUI, false); pendingLoadSlotUI = 0; }
     resetQuarterBeats();
     Object.values(keyElements).forEach(k => k.classList.remove('active'));
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
-
   function handleData(event) {
     const text = new TextDecoder('utf-8').decode(event.target.value).trim();
     const parts = text.split(' ');
     const cmd = parts[0];
-
     if (cmd === '/state') {
       const newState = parts[1] || 'IDLE';
-      
-      if ((currentLooperState === 'RECORDING' || currentLooperState === 'OVERDUB') && 
+
+      if ((currentLooperState === 'RECORDING' || currentLooperState === 'OVERDUB') &&
           (newState === 'PLAYING' || newState === 'IDLE')) {
         finalizeRecLayout();
       }
-
       currentLooperState = newState;
       statusBar.className = currentLooperState;
       statusBar.innerText = "СОСТОЯНИЕ: " + currentLooperState;
     }
+    else if (cmd === '/beatinfo') {
+      const beatMs = parseFloat(parts[1]) || 0;
+      if (beatMs > 0) {
+        msPerBar = beatMs * 4;
+        if (finalLoopMs > 0) {
+          totalRecordedBars = Math.max(1, Math.round(finalLoopMs / msPerBar));
+          redrawBarLines();
+          redrawQuarterLines();
+        }
+      }
+    }
+    else if (cmd === '/quant') {
+      quantGridState = parseInt(parts[1]);
+      quantStrengthState = parseInt(parts[2]);
+      quantTargetState = parseInt(parts[3]);
+      if (isNaN(quantGridState)) quantGridState = 0;
+      if (isNaN(quantStrengthState)) quantStrengthState = 100;
+      if (isNaN(quantTargetState)) quantTargetState = 2;
+      updateQuantGridButtons();
+      updateQuantTargetButton();
+      quantSlider.value = quantStrengthState;
+      quantSliderLabel.innerText = quantStrengthState + '%';
+    }
+    else if (cmd === '/qapply_ok') {
+      flashApplyButton('#4CAF50');
+    }
+    else if (cmd === '/qapply_err') {
+      const code = parseInt(parts[1]) || 0;
+      flashApplyButton('#F44336');
+      if (code === 1) alert('Нет активного лупа для квантования');
+      else if (code === 2) alert('Квантование выключено (Grid: OFF или ползунок на 0%)');
+    }
+    else if (cmd === '/presets') {
+      const statusStr = parts[1] || '';
+      for (let i = 1; i <= PRESET_COUNT; i++) {
+        updatePresetSlotVisual(i, statusStr[i - 1] === '1');
+      }
+    }
+    else if (cmd === '/load_pending') {
+      const slot = parseInt(parts[1]) || 0;
+      if (pendingLoadSlotUI && pendingLoadSlotUI !== slot) markPresetPending(pendingLoadSlotUI, false);
+      pendingLoadSlotUI = slot;
+      markPresetPending(slot, true);
+    }
+    else if (cmd === '/save_ok') {
+      const slot = parseInt(parts[1]) || 0;
+      updatePresetSlotVisual(slot, true);
+      flashPresetSlot(slot, '#4CAF50');
+    }
+    else if (cmd === '/save_err') {
+      const slot = parseInt(parts[1]) || 0;
+      flashPresetSlot(slot, '#F44336');
+      alert('Не удалось сохранить пресет P' + slot + ': нет завершённого лупа');
+    }
+    else if (cmd === '/load_ok') {
+      const slot = parseInt(parts[1]) || 0;
+      if (pendingLoadSlotUI === slot) { markPresetPending(slot, false); pendingLoadSlotUI = 0; }
+      flashPresetSlot(slot, '#2196F3');
+    }
+    else if (cmd === '/load_err') {
+      const slot = parseInt(parts[1]) || 0;
+      if (pendingLoadSlotUI === slot) { markPresetPending(slot, false); pendingLoadSlotUI = 0; }
+      flashPresetSlot(slot, '#F44336');
+      alert('Пресет P' + slot + ' пуст или повреждён');
+    }
+    else if (cmd === '/del_ok') {
+      const slot = parseInt(parts[1]) || 0;
+      updatePresetSlotVisual(slot, false);
+    }
     else if (cmd === '/pos') {
       const val = parseFloat(parts[1]) || 0;
       currentPlaybackNormPos = val;
-      
+
       if (finalLoopMs > 0) {
         baseProgress.style.width = (val * 100) + '%';
         const currentBar = Math.min(Math.floor(val * totalRecordedBars) + 1, totalRecordedBars);
@@ -643,51 +1000,44 @@
         baseProgress.style.width = '0%';
         barCounter.innerText = "Такт: 1 (Готов к записи)";
       }
-      
+
       const currentQuarter = Math.floor(val * 4) % 4;
       const quarterProgress = (val * 4) % 1;
       updateQuarterBeats(currentQuarter, quarterProgress);
-
       updateActiveOverdubNotes();
-    } 
+    }
     else if (cmd === '/rec_pos') {
       const currentMs = parseFloat(parts[1]) || 1;
       finalLoopMs = currentMs;
-      baseProgress.style.width = '100%'; 
-
+      baseProgress.style.width = '100%';
       const currentBar = Math.floor(currentMs / msPerBar) + 1;
       barCounter.innerText = "Запись... Такт: " + currentBar;
-
       if (currentBar > createdBarLines.length + 1) {
         addBarLineAtMs(createdBarLines.length + 1);
       }
       updateBarLinesPositions(currentMs);
-
       const currentQuarter = Math.floor((currentMs % msPerBar) / (msPerBar / 4));
       const quarterProgress = ((currentMs % (msPerBar / 4)) / (msPerBar / 4));
       updateQuarterBeats(currentQuarter, quarterProgress);
-
       updateRecElements(currentMs);
     }
     else if (cmd === '/cc' || cmd === '/rec_cc') {
       const rawVal = parseFloat(parts[1]) || 0;
       const isWriting = (currentLooperState === 'RECORDING' || currentLooperState === 'OVERDUB' || cmd === '/rec_cc');
-      
+
       if (isWriting) {
         const ccEl = document.createElement('div');
         ccEl.className = 'cc-block';
-        
+
         let startMs = 0;
         let startPos = 0;
-
         if (currentLooperState === 'OVERDUB') {
-          startPos = currentPlaybackNormPos;
+          startPos = rawVal;
           startMs = startPos * finalLoopMs;
           ccEl.style.left = (startPos * 100) + '%';
         } else {
           startMs = rawVal;
         }
-
         eventsLayer.appendChild(ccEl);
         const item = { type: 'cc', el: ccEl, startMs: startMs, startPos: startPos };
         recEventsTemp.push(item);
@@ -698,75 +1048,66 @@
       const noteNum = parseInt(parts[1]) || 60;
       const rawVal = parseFloat(parts[2]) || 0;
       const isWriting = (currentLooperState === 'RECORDING' || currentLooperState === 'OVERDUB' || cmd === '/rec_noteon');
-      
+
       if (keyElements[noteNum]) {
         keyElements[noteNum].classList.add('active');
         createParticlesForNote(noteNum);
       }
-
       if (isWriting) {
         const noteEl = document.createElement('div');
         noteEl.className = 'note-block';
         noteEl.style.top = getNoteYPosition(noteNum) + '%';
         noteEl.style.height = '4px';
         noteEl.style.backgroundColor = LIVE_NOTE_COLOR;
-
         let startPos = 0;
         let startMs = 0;
-
         if (currentLooperState === 'OVERDUB') {
-          startPos = currentPlaybackNormPos;
+          startPos = rawVal;
           startMs = startPos * finalLoopMs;
           noteEl.style.left = (startPos * 100) + '%';
         } else {
           startMs = rawVal;
         }
-
         noteEl.style.width = '0.5%';
         eventsLayer.appendChild(noteEl);
-
-        const item = { 
-          type: 'note', 
-          note: noteNum, 
-          el: noteEl, 
+        const item = {
+          type: 'note',
+          note: noteNum,
+          el: noteEl,
           color: LIVE_NOTE_COLOR,
           startMs: startMs,
           endMs: null,
           startPos: startPos,
           endPos: null
         };
-
         recEventsTemp.push(item);
         allRecordedNotes.push(item);
         activeNotes[noteNum] = item;
       }
-
       if (activeLiveNoteMap[noteNum]) {
         activeLiveNoteMap[noteNum].active = false;
       }
-
       const liveNote = {
         noteNum: noteNum,
-        y: canvas.height - 10, 
+        y: canvas.height - 10,
         height: 10,
         color: LIVE_NOTE_COLOR,
         active: true
       };
       liveWaterfallNotes.push(liveNote);
       activeLiveNoteMap[noteNum] = liveNote;
-    } 
+    }
     else if (cmd === '/noteoff' || cmd === '/rec_noteoff') {
       const noteNum = parseInt(parts[1]) || 60;
       const rawVal = parseFloat(parts[2]) || 0;
-      
+
       if (activeNotes[noteNum]) {
         const item = activeNotes[noteNum];
         if (keyElements[noteNum]) {
           keyElements[noteNum].classList.remove('active');
         }
-
         if (currentLooperState === 'OVERDUB') {
-          let endPos = currentPlaybackNormPos;
+          let endPos = rawVal;
           if (endPos < item.startPos) endPos += 1.0;
           item.endPos = endPos;
           item.endMs = endPos * finalLoopMs;
@@ -774,70 +1115,60 @@
         } else {
           item.endMs = rawVal > item.startMs ? rawVal : (item.startMs + 50);
         }
-
         delete activeNotes[noteNum];
       } else {
         if (keyElements[noteNum]) keyElements[noteNum].classList.remove('active');
       }
-
       if (activeLiveNoteMap[noteNum]) {
         activeLiveNoteMap[noteNum].active = false;
         delete activeLiveNoteMap[noteNum];
       }
-    } 
+    }
     else if (cmd === '/reset' || cmd === '/clear') {
       executeLocalReset();
     }
   }
-
   function updateActiveOverdubNotes() {
     if (currentLooperState !== 'OVERDUB') return;
-
     for (let noteNum in activeNotes) {
       const item = activeNotes[noteNum];
       let currentPos = currentPlaybackNormPos;
       if (currentPos < item.startPos) currentPos += 1.0;
-      
+
       const widthPct = Math.max((currentPos - item.startPos) * 100, 0.4);
       item.el.style.width = widthPct + '%';
     }
   }
-
   function addBarLineAtMs(barIndex) {
     const line = document.createElement('div');
     line.className = 'bar-grid-line';
     trackEl.appendChild(line);
     createdBarLines.push({ el: line, barIndex: barIndex });
   }
-
   function updateBarLinesPositions(totalMs) {
     createdBarLines.forEach(item => {
       const posPct = ((item.barIndex * msPerBar) / totalMs) * 100;
       item.el.style.left = posPct + '%';
     });
   }
-
   function finalizeRecLayout() {
     totalRecordedBars = Math.max(1, Math.round(finalLoopMs / msPerBar));
-
     allRecordedNotes.forEach(item => {
       if ((item.startPos === 0 || item.startPos === undefined) && item.startMs > 0 && finalLoopMs > 0) {
         item.startPos = item.startMs / finalLoopMs;
         const endMs = item.endMs ? item.endMs : finalLoopMs;
         item.endPos = endMs / finalLoopMs;
-
         item.el.style.left = (item.startPos * 100) + '%';
         item.el.style.width = Math.max((item.endPos - item.startPos) * 100, 0.4) + '%';
       }
     });
-
     allCcEvents.forEach(item => {
       if ((item.startPos === 0 || item.startPos === undefined) && item.startMs > 0 && finalLoopMs > 0) {
         item.startPos = item.startMs / finalLoopMs;
         item.el.style.left = (item.startPos * 100) + '%';
       }
     });
-    
+
     for (let noteNum in activeNotes) {
       const item = activeNotes[noteNum];
       if (item.endPos === null) {
@@ -848,18 +1179,15 @@
         item.el.style.width = Math.max((endPos - item.startPos) * 100, 0.4) + '%';
       }
     }
-
     redrawBarLines();
-
+    redrawQuarterLines();
     recEventsTemp = [];
     activeNotes = {};
   }
-
   function clearBarLines() {
     createdBarLines.forEach(item => item.el.remove());
     createdBarLines = [];
   }
-
   function updateQuarterBeats(currentBeat, subProgress) {
     beatBoxes.forEach((box, idx) => {
       const progEl = box.querySelector('.beat-progress');
@@ -875,19 +1203,16 @@
       }
     });
   }
-
   function resetQuarterBeats() {
     beatBoxes.forEach(box => {
       box.classList.remove('active');
       box.querySelector('.beat-progress').style.width = '0%';
     });
   }
-
   function updateRecElements(maxMs) {
     recEventsTemp.forEach(item => {
       const leftPct = (item.startMs / maxMs) * 100;
       item.el.style.left = leftPct + '%';
-
       if (item.type === 'note') {
         const currentEnd = item.endMs ? item.endMs : maxMs;
         const widthPct = Math.max(((currentEnd - item.startMs) / maxMs) * 100, 0.4);
@@ -895,7 +1220,6 @@
       }
     });
   }
-
   function createParticlesForNote(noteNum) {
     if (!keyXPositions[noteNum]) return;
     const centerX = (keyXPositions[noteNum] / 100) * canvas.width;
@@ -910,16 +1234,13 @@
       });
     }
   }
-
   function drawWaterfall() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     for (let i = liveWaterfallNotes.length - 1; i >= 0; i--) {
       const note = liveWaterfallNotes[i];
       const centerPct = keyXPositions[note.noteNum] || 50;
       const x = (centerPct / 100) * canvas.width - 6;
       const w = 12;
-
       if (note.active) {
         note.height += 3.5;
         note.y -= 3.5;
@@ -927,7 +1248,6 @@
       } else {
         note.y -= 3.5;
       }
-
       if (note.y + note.height > 0) {
         ctx.fillStyle = LIVE_NOTE_COLOR;
         ctx.shadowColor = LIVE_NOTE_COLOR;
@@ -940,30 +1260,24 @@
         liveWaterfallNotes.splice(i, 1);
       }
     }
-
     if (currentLooperState !== 'RECORDING' && finalLoopMs > 0) {
       allRecordedNotes.forEach(item => {
         if (item.startPos === null || item.startPos === undefined) return;
-
         let startNorm = item.startPos;
         let endNorm = item.endPos || (item.startPos + 0.03);
-
         const centerPct = keyXPositions[item.note] || 50;
         const x = (centerPct / 100) * canvas.width - 6;
         const w = 12;
-
         const speed = 0.85;
         let timeDiff = (currentPlaybackNormPos - startNorm);
-        if (timeDiff < -0.5) timeDiff += 1.0; 
-
+        if (timeDiff < -0.5) timeDiff += 1.0;
         const y = (timeDiff * canvas.height * speed) + (canvas.height - 5);
         const h = Math.max((endNorm - startNorm) * canvas.height * speed, 8);
-
         if (y - h < canvas.height && y > -50) {
           ctx.fillStyle = LOOP_NOTE_COLOR;
           ctx.shadowColor = LOOP_NOTE_COLOR;
           ctx.shadowBlur = 6;
-          
+
           ctx.beginPath();
           ctx.roundRect(x, y - h, w, h, 2);
           ctx.fill();
@@ -971,13 +1285,11 @@
         }
       });
     }
-
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
       p.x += p.vx;
       p.y += p.vy;
       p.alpha -= 0.03;
-
       if (p.alpha <= 0) {
         particles.splice(i, 1);
       } else {
@@ -987,10 +1299,8 @@
         ctx.fill();
       }
     }
-
     requestAnimationFrame(drawWaterfall);
   }
-
   requestAnimationFrame(drawWaterfall);
 </script>
 </body>
